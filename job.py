@@ -1,7 +1,7 @@
 import json
 import time
 from typing import Any, Dict, List
-from helpers.irp_integration.client import Client
+from .client import Client
 from helpers.irp_integration.constants import GET_RISK_DATA_JOB_BY_ID, SEARCH_RISK_DATA_JOBS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES
 from helpers.irp_integration.exceptions import IRPAPIError, IRPJobError
 from helpers.irp_integration.validators import validate_list_not_empty, validate_positive_int
