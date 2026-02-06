@@ -9,10 +9,11 @@ import json
 import time
 from typing import Dict, Any, List, Optional, Tuple
 from .client import Client
-from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES
+from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, WORKFLOW_COMPLETED_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB, GET_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
-from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
+from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
 from .utils import extract_id_from_location_header
+from .s3 import S3Manager
 
 class EDMManager:
     """Manager for EDM (Exposure Data Management) operations."""
@@ -197,7 +198,7 @@ class EDMManager:
         Returns:
             List of EDM dictionaries
         """
-        params = {'limit': limit, 'offset': offset}
+        params: Dict[str, Any] = {'limit': limit, 'offset': offset}
         if filter:
             params['filter'] = filter
         try:
@@ -523,3 +524,167 @@ class EDMManager:
             return response.json()
         except Exception as e:
             raise IRPAPIError(f"Failed to get LOBs for exposure ID '{exposure_id}': {e}")
+        
+
+    def submit_edm_import_job(
+        self,
+        edm_name: str,
+        edm_file_path: str,
+        server_name: str = "sql-instance-1"
+    ) -> Tuple[int, Dict[str, Any]]:
+        """
+        Submit EDM import job with S3 file upload.
+
+        This method handles the complete EDM import workflow:
+        1. Create import folder (get S3 credentials)
+        2. Upload EDM .bak file to S3
+        3. Create or get existing exposure set
+        4. Submit import job
+
+        Args:
+            edm_name: Name for the EDM
+            edm_file_path: Path to the .bak file to import
+            server_name: Database server name (default: "sql-instance-1")
+
+        Returns:
+            Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPFileError: If file upload fails
+            IRPAPIError: If API calls fail
+        """
+        validate_non_empty_string(edm_name, "edm_name")
+        validate_file_exists(edm_file_path, "edm_file_path")
+        validate_non_empty_string(server_name, "server_name")
+        
+        s3_manager = S3Manager()
+
+        # Look up database server
+        database_servers = self.search_database_servers(filter=f"serverName=\"{server_name}\"")
+        if len(database_servers) != 1:
+            raise IRPReferenceDataError(f"Database server '{server_name}' not found")
+        try:
+            server_id = database_servers[0]['serverId']
+        except (KeyError, TypeError, IndexError) as e:
+            raise IRPAPIError(f"Failed to extract server ID: {e}") from e
+
+        # Step 1: Create import folder
+        folder_data = {
+            "folderType": "EDM",
+            "properties": {
+                "fileExtension": "bak"
+            }
+        }
+        response = self.client.request('POST', CREATE_IMPORT_FOLDER, json=folder_data)
+        folder_response = response.json()
+
+        # Extract folder ID and upload details
+        try:
+            folder_id = folder_response['folderId']
+            folder_type = folder_response['folderType']
+            upload_details = folder_response['uploadDetails']['exposureFile']
+        except (KeyError, TypeError) as e:
+            raise IRPAPIError(
+                f"Create import folder response missing required fields: {e}"
+            ) from e
+
+        # Step 2: Upload file to S3
+        s3_manager.upload_file(edm_file_path, upload_details)
+
+        # Step 3: Create or get existing exposure set
+        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{edm_name}\"")
+        if len(exposure_sets) > 0:
+            try:
+                exposure_set_id = exposure_sets[0]['exposureSetId']
+            except (KeyError, TypeError, IndexError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract exposure set ID: {e}"
+                ) from e
+        else:
+            exposure_set_id = self.create_exposure_set(name=edm_name)
+
+        # Step 4: Submit import job
+        settings = {
+            "folderId": int(folder_id),
+            "exposureName": edm_name,
+            "serverId": server_id
+        }
+        import_data = {
+            "importType": folder_type,
+            "resourceUri": f'/platform/riskdata/v1/exposuresets/{exposure_set_id}',
+            "settings": settings
+        }
+        response = self.client.request('POST', SUBMIT_IMPORT_JOB, json=import_data)
+        job_id = extract_id_from_location_header(response, "EDM import job submission")
+
+        return int(job_id), import_data
+    
+    def get_edm_import_job(self, job_id: int) -> Dict[str, Any]:
+        """
+        Get EDM import job status by job ID.
+
+        Args:
+            job_id: Import job ID
+
+        Returns:
+            Dict containing job status details
+
+        Raises:
+            IRPValidationError: If job_id is invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(job_id, "job_id")
+
+        try:
+            response = self.client.request('GET', GET_IMPORT_JOB.format(jobId=job_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to get import job status for job ID {job_id}: {e}")
+
+    def poll_edm_import_job_to_completion(
+        self,
+        job_id: int,
+        interval: int = 10,
+        timeout: int = 600000
+    ) -> Dict[str, Any]:
+        """
+        Poll EDM import job until completion or timeout.
+
+        Args:
+            job_id: Import job ID
+            interval: Polling interval in seconds (default: 10)
+            timeout: Maximum timeout in seconds (default: 600000)
+
+        Returns:
+            Final job status details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPJobError: If job times out
+            IRPAPIError: If polling fails
+        """
+        validate_positive_int(job_id, "job_id")
+        validate_positive_int(interval, "interval")
+        validate_positive_int(timeout, "timeout")
+
+        start = time.time()
+        while True:
+            print(f"Polling EDM import job ID {job_id}")
+            job_data = self.get_edm_import_job(job_id)
+            try:
+                status = job_data['status']
+                progress = job_data.get('progress', 0)
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Missing 'status' in job response for job ID {job_id}: {e}"
+                ) from e
+            print(f"Job status: {status}; Percent complete: {progress}")
+            if status in WORKFLOW_COMPLETED_STATUSES:
+                return job_data
+
+            if time.time() - start > timeout:
+                raise IRPJobError(
+                    f"EDM import job ID {job_id} did not complete within {timeout} seconds. Last status: {status}"
+                )
+            time.sleep(interval)

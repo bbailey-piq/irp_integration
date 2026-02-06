@@ -21,9 +21,13 @@ DELETE_EDM = '/platform/riskdata/v1/exposures/{exposureId}'
 GET_CEDANTS = '/platform/riskdata/v1/exposures/{exposureId}/cedants'
 GET_LOBS = '/platform/riskdata/v1/exposures/{exposureId}/lobs'
 
-# MRI Import Endpoints
+# Platform Import Endpoints
 CREATE_IMPORT_FOLDER = '/platform/import/v1/folders'
-CREATE_IMPORT_JOB = '/platform/import/v1/jobs'
+SUBMIT_IMPORT_JOB = '/platform/import/v1/jobs'
+GET_IMPORT_JOB = '/platform/import/v1/jobs/{jobId}'
+SEARCH_IMPORTED_RDMS = '/platform/riskdata/v1/analyses/imported-rdms'
+
+# MRI Import Endpoints
 CREATE_AWS_BUCKET = '/riskmodeler/v1/storage'
 CREATE_MAPPING = '/riskmodeler/v1/imports/createmapping/{bucket_id}'
 EXECUTE_IMPORT = '/riskmodeler/v1/imports'
