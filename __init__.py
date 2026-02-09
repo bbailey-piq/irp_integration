@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from .job import JobManager
 from .client import Client
 from .edm import EDMManager
@@ -19,8 +22,8 @@ class IRPClient:
         self.analysis = AnalysisManager(self._client)
         self.treaty = TreatyManager(self._client)
         self.reference_data = ReferenceDataManager(self._client)
-        self.rdm = RDMManager(self.client)
-        self.job = JobManager(self.client)
+        self.rdm = RDMManager(self._client)
+        self.job = JobManager(self._client)
 
     @property
     def client(self):
