@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from .job import JobManager
+from .risk_data_job import RiskDataJobManager
 from .client import Client
 from .edm import EDMManager
 from .portfolio import PortfolioManager
@@ -16,6 +16,7 @@ class IRPClient:
     
     def __init__(self):
         self._client = Client()
+        self.risk_data_job = RiskDataJobManager(self._client)
         self.edm = EDMManager(self._client)
         self.portfolio = PortfolioManager(self._client)
         self.mri_import = MRIImportManager(self._client)
@@ -23,7 +24,6 @@ class IRPClient:
         self.treaty = TreatyManager(self._client)
         self.reference_data = ReferenceDataManager(self._client)
         self.rdm = RDMManager(self._client)
-        self.job = JobManager(self._client)
 
     @property
     def client(self):

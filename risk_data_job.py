@@ -1,3 +1,10 @@
+"""
+Risk data job management operations.
+
+Handles job status tracking, polling, and batch polling for all
+platform risk data jobs via the unified /platform/riskdata/v1/jobs endpoint.
+"""
+
 import json
 import time
 from typing import Any, Dict, List
@@ -7,7 +14,7 @@ from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_positive_int
 
 
-class JobManager:
+class RiskDataJobManager:
 
     def __init__(self, client: Client) -> None:
         self.client = client
