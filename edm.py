@@ -23,7 +23,7 @@ class EDMManager:
             client: Client, 
             portfolio_manager: Optional[Any] = None, 
             analysis_manager: Optional[Any] = None,
-            job_manager: Optional[Any] = None
+            risk_data_job_manager: Optional[Any] = None
     ) -> None:
         """
         Initialize EDM manager.
@@ -35,7 +35,7 @@ class EDMManager:
         self.client = client
         self._portfolio_manager = portfolio_manager
         self._analysis_manager = analysis_manager
-        self._job_manager = job_manager
+        self._risk_data_job_manager = risk_data_job_manager
 
 
     @property
@@ -55,11 +55,11 @@ class EDMManager:
         return self._analysis_manager
     
     @property
-    def job_manager(self):
-        """Lazy-loaded job manager to avoid circular imports."""
+    def risk_data_job_manager(self):
+        """Lazy-loaded risk data job manager to avoid circular imports."""
         if self._job_manager is None:
-            from .job import JobManager
-            self._job_manager = JobManager(self.client)
+            from .risk_data_job import RiskDataJobManager
+            self._job_manager = RiskDataJobManager(self.client)
         return self._job_manager
 
 
@@ -457,7 +457,7 @@ class EDMManager:
                 ) from e
 
         delete_edm_job_id = self.submit_delete_edm_job(exposure_id)
-        return self.job_manager.poll_risk_data_job_to_completion(delete_edm_job_id)
+        return self.risk_data_job_manager.poll_risk_data_job_to_completion(delete_edm_job_id)
 
 
     def submit_delete_edm_job(self, exposure_id: int) -> int:
