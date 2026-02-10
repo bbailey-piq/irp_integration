@@ -1,0 +1,163 @@
+"""
+Import job management operations.
+
+Provides a centralized interface for submitting, tracking, and polling
+platform import jobs. Uses the /platform/import/v1/jobs endpoint.
+"""
+
+import time
+from typing import Dict, Any, Optional, Tuple
+
+from .client import Client
+from .constants import GET_IMPORT_JOB, WORKFLOW_COMPLETED_STATUSES
+from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
+from .validators import validate_positive_int, validate_non_empty_string
+
+
+class ImportJobManager:
+    """Manager for platform import job operations (EDM, RDM)."""
+
+    VALID_IMPORT_TYPES = {"EDM", "RDM"}
+
+    def __init__(
+        self,
+        client: Client,
+        edm_manager: Optional[Any] = None,
+        rdm_manager: Optional[Any] = None
+    ) -> None:
+        """
+        Initialize ImportJobManager.
+
+        Args:
+            client: IRP API client instance
+            edm_manager: Optional EDMManager instance for EDM import routing
+            rdm_manager: Optional RDMManager instance for RDM import routing
+        """
+        self.client = client
+        self._edm_manager = edm_manager
+        self._rdm_manager = rdm_manager
+
+    @property
+    def edm_manager(self):
+        """Lazy-loaded EDM manager to avoid circular imports."""
+        if self._edm_manager is None:
+            from .edm import EDMManager
+            self._edm_manager = EDMManager(self.client)
+        return self._edm_manager
+
+    @property
+    def rdm_manager(self):
+        """Lazy-loaded RDM manager to avoid circular imports."""
+        if self._rdm_manager is None:
+            from .rdm import RDMManager
+            self._rdm_manager = RDMManager(self.client)
+        return self._rdm_manager
+
+    def submit_job(self, import_type: str, **kwargs) -> Tuple[int, Dict[str, Any]]:
+        """
+        Submit an import job, routing to the appropriate manager based on type.
+
+        Args:
+            import_type: Type of import - "EDM" or "RDM"
+            **kwargs: Arguments passed to the underlying submit method.
+
+                For EDM (routed to EDMManager.submit_edm_import_job):
+                    edm_name (str): Name for the EDM
+                    edm_file_path (str): Path to the .bak file
+                    server_name (str): Database server name (default: "sql-instance-1")
+
+                For RDM (routed to RDMManager.submit_rdm_import_job):
+                    rdm_name (str): Name for the RDM
+                    edm_name (str): Name of the target EDM
+                    rdm_file_path (str): Path to the .bak file
+
+        Returns:
+            Tuple of (job_id, request_body)
+
+        Raises:
+            IRPValidationError: If import_type is invalid or kwargs are wrong
+            IRPAPIError: If submission fails
+        """
+        validate_non_empty_string(import_type, "import_type")
+        import_type_upper = import_type.upper()
+
+        if import_type_upper not in self.VALID_IMPORT_TYPES:
+            raise IRPValidationError(
+                f"Invalid import_type '{import_type}'. "
+                f"Must be one of: {', '.join(sorted(self.VALID_IMPORT_TYPES))}"
+            )
+
+        if import_type_upper == "EDM":
+            return self.edm_manager.submit_edm_import_job(**kwargs)
+        else:
+            return self.rdm_manager.submit_rdm_import_job(**kwargs)
+
+    def get_import_job(self, job_id: int) -> Dict[str, Any]:
+        """
+        Get import job status by job ID.
+
+        Args:
+            job_id: Import job ID
+
+        Returns:
+            Dict containing job status details
+
+        Raises:
+            IRPValidationError: If job_id is invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(job_id, "job_id")
+
+        try:
+            response = self.client.request('GET', GET_IMPORT_JOB.format(jobId=job_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to get import job status for job ID {job_id}: {e}")
+
+    def poll_import_job_to_completion(
+        self,
+        job_id: int,
+        interval: int = 10,
+        timeout: int = 600000
+    ) -> Dict[str, Any]:
+        """
+        Poll import job until completion or timeout.
+
+        Args:
+            job_id: Import job ID
+            interval: Polling interval in seconds (default: 10)
+            timeout: Maximum timeout in seconds (default: 600000)
+
+        Returns:
+            Final job status details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPJobError: If job times out
+            IRPAPIError: If polling fails
+        """
+        validate_positive_int(job_id, "job_id")
+        validate_positive_int(interval, "interval")
+        validate_positive_int(timeout, "timeout")
+
+        start = time.time()
+        while True:
+            print(f"Polling import job ID {job_id}")
+            job_data = self.get_import_job(job_id)
+            try:
+                status = job_data['status']
+                progress = job_data.get('progress', 0)
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Missing 'status' in job response for job ID {job_id}: {e}"
+                ) from e
+            print(f"Job status: {status}; Percent complete: {progress}")
+            if status in WORKFLOW_COMPLETED_STATUSES:
+                return job_data
+
+            if time.time() - start > timeout:
+                raise IRPJobError(
+                    f"Import job ID {job_id} did not complete within {timeout} seconds. "
+                    f"Last status: {status}"
+                )
+            time.sleep(interval)
