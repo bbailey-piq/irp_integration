@@ -6,6 +6,7 @@ and batch workflow execution.
 """
 
 import json
+import logging
 import requests
 import time
 import os
@@ -16,6 +17,9 @@ from .constants import  GET_WORKFLOWS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_
 from .exceptions import IRPAPIError, IRPJobError, IRPWorkflowError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import get_location_header
+
+logger = logging.getLogger(__name__)
+
 
 class Client:
 
@@ -96,6 +100,8 @@ class Client:
             else:
                 url = f"{self.base_url}/{path.lstrip('/')}"
 
+        logger.debug("%s %s", method, url)
+
         try:
             response = self.session.request(
                 method=method,
@@ -115,10 +121,13 @@ class Client:
                 msg = f" | server: {body}"
             except Exception:
                 msg = f" | text: {response.text[:500]}"
+            logger.error("HTTP request failed: %s %s%s", method, url, msg)
             raise IRPAPIError(f"HTTP request failed: {e} {msg}") from e
         except requests.RequestException as e:
+            logger.error("Request error: %s %s — %s", method, url, e, exc_info=True)
             raise IRPAPIError(f"Request error: {e}") from e
 
+        logger.debug("%s %s — %s", method, url, response.status_code)
         return response
 
 
@@ -165,7 +174,7 @@ class Client:
 
         start = time.time()
         while True:
-            print(f"Polling risk data job ID {workflow_id}")
+            logger.info("Polling workflow ID %s", workflow_id)
             job_data = self.get_workflow(workflow_id)
             try:
                 status = job_data['status']
@@ -174,11 +183,12 @@ class Client:
                 raise IRPAPIError(
                     f"Missing 'status' or 'progress' in job response for workflow ID {workflow_id}: {e}"
                 ) from e
-            print(f"Workflow status: {status}; Percent complete: {progress}")
+            logger.info("Workflow %s status: %s; progress: %s", workflow_id, status, progress)
             if status in WORKFLOW_COMPLETED_STATUSES:
                 return job_data
-            
+
             if time.time() - start > timeout:
+                logger.error("Workflow %s timed out after %s seconds. Last status: %s", workflow_id, timeout, status)
                 raise IRPJobError(
                     f"Risk data workflow ID {workflow_id} did not complete within {timeout} seconds. Last status: {status}"
                 )
@@ -213,17 +223,18 @@ class Client:
 
         start = time.time()
         while True:
-            print(f"Polling workflow url {workflow_url}")
+            logger.info("Polling workflow URL %s", workflow_url)
             response = self.request('GET', '', full_url=workflow_url)
             workflow_data = response.json()
             status = workflow_data.get('status', '')
             progress = workflow_data.get('progress', '')
-            print(f"Workflow status: {status}; Percent complete: {progress}")
+            logger.info("Workflow status: %s; progress: %s", status, progress)
 
             if status in WORKFLOW_COMPLETED_STATUSES:
                 return response
 
             if time.time() - start > timeout:
+                logger.error("Workflow timed out after %s seconds. Last status: %s", timeout, status)
                 raise IRPWorkflowError(
                     f"Workflow did not complete within {timeout} seconds. Last status: {status}"
                 )
@@ -256,7 +267,7 @@ class Client:
 
         start = time.time()
         while True:
-            print(f"Polling batch workflow ids: {','.join(str(item) for item in workflow_ids)}")
+            logger.info("Polling batch workflow IDs: %s", ",".join(str(item) for item in workflow_ids))
 
             # Fetch all workflows across all pages
             all_workflows = []
@@ -304,6 +315,7 @@ class Client:
                 return response
 
             if time.time() - start > timeout:
+                logger.error("Batch workflows timed out after %s seconds", timeout)
                 raise IRPWorkflowError(
                     f"Batch workflows did not complete within {timeout} seconds"
                 )
@@ -342,7 +354,7 @@ class Client:
             IRPAPIError: If request fails
             IRPWorkflowError: If workflow times out
         """
-        print("Submitting workflow request...")
+        logger.info("Submitting workflow request...")
         response = self.request(
             method, path,
             params=params,
