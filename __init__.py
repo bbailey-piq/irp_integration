@@ -10,6 +10,7 @@ from .analysis import AnalysisManager
 from .treaty import TreatyManager
 from .reference_data import ReferenceDataManager
 from .rdm import RDMManager
+from .import_job import ImportJobManager
 
 class IRPClient:
     """Main client for IRP integration providing access to all managers"""
@@ -24,6 +25,7 @@ class IRPClient:
         self.treaty = TreatyManager(self._client)
         self.reference_data = ReferenceDataManager(self._client)
         self.rdm = RDMManager(self._client)
+        self.import_job = ImportJobManager(self._client)
 
     @property
     def client(self):

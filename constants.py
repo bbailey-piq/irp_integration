@@ -37,6 +37,7 @@ SEARCH_PORTFOLIOS = '/platform/riskdata/v1/exposures/{exposureId}/portfolios'
 SEARCH_ACCOUNTS_BY_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/accounts'
 CREATE_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/portfolios'
 GET_PORTFOLIO_BY_ID = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}'
+GET_PORTFOLIO_METADATA = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics'
 GEOHAZ_PORTFOLIO = '/platform/geohaz/v1/jobs'
 GET_GEOHAZ_JOB = '/platform/geohaz/v1/jobs/{jobId}'
 

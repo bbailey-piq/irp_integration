@@ -9,7 +9,7 @@ import json
 import time
 from typing import Dict, Any, List, Optional, Tuple
 from .client import Client
-from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, WORKFLOW_COMPLETED_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB, GET_IMPORT_JOB
+from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
 from .utils import extract_id_from_location_header
@@ -619,72 +619,3 @@ class EDMManager:
         job_id = extract_id_from_location_header(response, "EDM import job submission")
 
         return int(job_id), import_data
-    
-    def get_edm_import_job(self, job_id: int) -> Dict[str, Any]:
-        """
-        Get EDM import job status by job ID.
-
-        Args:
-            job_id: Import job ID
-
-        Returns:
-            Dict containing job status details
-
-        Raises:
-            IRPValidationError: If job_id is invalid
-            IRPAPIError: If request fails
-        """
-        validate_positive_int(job_id, "job_id")
-
-        try:
-            response = self.client.request('GET', GET_IMPORT_JOB.format(jobId=job_id))
-            return response.json()
-        except Exception as e:
-            raise IRPAPIError(f"Failed to get import job status for job ID {job_id}: {e}")
-
-    def poll_import_job_to_completion(
-        self,
-        job_id: int,
-        interval: int = 10,
-        timeout: int = 600000
-    ) -> Dict[str, Any]:
-        """
-        Poll EDM import job until completion or timeout.
-
-        Args:
-            job_id: Import job ID
-            interval: Polling interval in seconds (default: 10)
-            timeout: Maximum timeout in seconds (default: 600000)
-
-        Returns:
-            Final job status details
-
-        Raises:
-            IRPValidationError: If parameters are invalid
-            IRPJobError: If job times out
-            IRPAPIError: If polling fails
-        """
-        validate_positive_int(job_id, "job_id")
-        validate_positive_int(interval, "interval")
-        validate_positive_int(timeout, "timeout")
-
-        start = time.time()
-        while True:
-            print(f"Polling EDM import job ID {job_id}")
-            job_data = self.get_edm_import_job(job_id)
-            try:
-                status = job_data['status']
-                progress = job_data.get('progress', 0)
-            except (KeyError, TypeError) as e:
-                raise IRPAPIError(
-                    f"Missing 'status' in job response for job ID {job_id}: {e}"
-                ) from e
-            print(f"Job status: {status}; Percent complete: {progress}")
-            if status in WORKFLOW_COMPLETED_STATUSES:
-                return job_data
-
-            if time.time() - start > timeout:
-                raise IRPJobError(
-                    f"EDM import job ID {job_id} did not complete within {timeout} seconds. Last status: {status}"
-                )
-            time.sleep(interval)

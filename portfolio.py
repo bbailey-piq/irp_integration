@@ -10,8 +10,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .client import Client
-from .constants import CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO
-from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
+from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO
+from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import extract_id_from_location_header
 
@@ -37,6 +37,54 @@ class PortfolioManager:
             self._edm_manager = EDMManager(self.client)
         return self._edm_manager
 
+
+    def get_portfolio_by_id(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]:
+        """
+        Retrieve portfolio details by portfolio ID.
+
+        Args:
+            exposure_id: Exposure ID
+            portfolio_id: Portfolio ID
+
+        Returns:
+            Dict containing portfolio details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(exposure_id, "exposure_id")
+        validate_positive_int(portfolio_id, "portfolio_id")
+
+        try:
+            response = self.client.request('GET', GET_PORTFOLIO_BY_ID.format(exposureId=exposure_id, id=portfolio_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to get portfolio details for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}")
+        
+    def get_portfolio_metadata(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]:
+        """
+        Retrieve portfolio metadata by portfolio ID.
+
+        Args:
+            exposure_id: Exposure ID
+            portfolio_id: Portfolio ID
+
+        Returns:
+            Dict containing portfolio metadata details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(exposure_id, "exposure_id")
+        validate_positive_int(portfolio_id, "portfolio_id")
+
+        try:
+            response = self.client.request('GET', GET_PORTFOLIO_METADATA.format(exposureId=exposure_id, id=portfolio_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to get portfolio metadata for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}")
     
     def search_portfolios(self, exposure_id: int, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
@@ -167,7 +215,7 @@ class PortfolioManager:
         self,
         edm_name: str,
         portfolio_name: str,
-        portfolio_number: str = "1",
+        portfolio_number: str = "",
         description: str = ""
     ) -> Tuple[int, Dict[str, Any]]:
         """
@@ -188,7 +236,6 @@ class PortfolioManager:
         """
         validate_non_empty_string(edm_name, "edm_name")
         validate_non_empty_string(portfolio_name, "portfolio_name")
-        validate_non_empty_string(portfolio_number, "portfolio_number")
 
         edms = self.edm_manager.search_edms(filter=f"exposureName=\"{edm_name}\"")
         if (len(edms) != 1):
@@ -203,6 +250,11 @@ class PortfolioManager:
         portfolios = self.search_portfolios(exposure_id=exposure_id, filter=f"portfolioName=\"{portfolio_name}\"")
         if (len(portfolios) > 0):
             raise IRPAPIError(f"{len(portfolios)} portfolios found with name {portfolio_name}, please use a unique name")
+
+        if not portfolio_number:
+            portfolio_number = portfolio_name
+        if not description:
+            description = "Portfolio created via API on " + datetime.now(tz=ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
         data = {
             "portfolioName": portfolio_name,
