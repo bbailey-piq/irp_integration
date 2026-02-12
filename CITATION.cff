@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 authors:
-  - name: "PremiumIQ"
+  - name: "PremiumIQ LLC"
     website: "https://premiumiq.com"
 title: "irp-integration"
 version: 0.1.0
