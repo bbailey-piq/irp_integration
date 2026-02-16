@@ -147,6 +147,7 @@ class ExportJobManager:
         # Extract filename from URL path (e.g., "23530777_usfl_commercial_Losses.zip")
         url_path = unquote(urlparse(download_url).path)
         filename = url_path.rsplit('/', 1)[-1]
+        os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, filename)
 
         try:

@@ -1542,7 +1542,7 @@ class AnalysisManager:
         
     def submit_analysis_export_job(
         self,
-        analysis_ids: List[int],
+        analysis_id: int,
         loss_details: List[Dict[str, Any]],
         file_extension: str = "PARQUET"
     ) -> Tuple[int, Dict[str, Any]]:
@@ -1550,7 +1550,7 @@ class AnalysisManager:
         Submit an analysis results export job.
 
         Args:
-            analysis_ids: List of analysis IDs to export
+            analysis_id: List of analysis IDs to export
             loss_details: List of loss detail configurations, each containing:
                 - metricType: str (e.g., "LOSS_TABLES")
                 - outputLevels: List[str] (e.g., ["Portfolio"])
@@ -1564,20 +1564,18 @@ class AnalysisManager:
             IRPValidationError: If inputs are invalid
             IRPAPIError: If any analysis doesn't exist or request fails
         """
-        validate_list_not_empty(analysis_ids, "analysis_ids")
+        validate_positive_int(analysis_id, "analysis_id")
         validate_list_not_empty(loss_details, "loss_details")
 
         resource_uris = []
 
-        # Validate analyses exist and build list of resource URIs
-        for analysis_id in analysis_ids:
-            validate_positive_int(analysis_id, "analysis_id")
-            results = self.search_analyses(filter=f"analysisId={analysis_id}")
-            if not results:
-                results = self.search_analyses(filter=f"appAnalysisId={analysis_id}")
-            if not results:
-                raise IRPAPIError(f"Analysis with ID {analysis_id} not found")
-            resource_uris.append(results[0]['uri'])
+        # Validate analysis exists
+        results = self.search_analyses(filter=f"analysisId={analysis_id}")
+        if not results:
+            results = self.search_analyses(filter=f"appAnalysisId={analysis_id}")
+        if not results:
+            raise IRPAPIError(f"Analysis with ID {analysis_id} not found")
+        resource_uris.append(results[0]['uri'])
 
         data = {
             "exportType": "RESULTS",
