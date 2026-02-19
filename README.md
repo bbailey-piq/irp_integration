@@ -88,10 +88,10 @@ Each named connection uses the prefix `MSSQL_{CONNECTION_NAME}_`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MSSQL_{NAME}_SERVER` | Yes | Server hostname or IP |
-| `MSSQL_{NAME}_USER` | Yes | SQL Server username |
-| `MSSQL_{NAME}_PASSWORD` | Yes | SQL Server password |
-| `MSSQL_{NAME}_PORT` | No | Port (default: 1433) |
+| `MSSQL_DATABRIDGE_SERVER` | Yes | Server hostname or IP |
+| `MSSQL_DATABRIDGE_USER` | Yes | SQL Server username |
+| `MSSQL_DATABRIDGE_PASSWORD` | Yes | SQL Server password |
+| `MSSQL_DATABRIDGE_PORT` | No | Port (default: 1433) |
 
 **Global settings:**
 
@@ -113,17 +113,17 @@ MSSQL_DATABRIDGE_PASSWORD=secretpassword
 ```python
 from irp_integration.databridge import DataBridgeManager
 
-db = DataBridgeManager(default_connection='DATABRIDGE')
+dbm = DataBridgeManager()
 
 # Inline query with parameters
-df = db.execute_query(
+df = dbm.execute_query(
     "SELECT * FROM portfolios WHERE value > {{ min_value }}",
     params={'min_value': 1000000},
     database='DataWarehouse'
 )
 
 # Execute SQL script from file
-results = db.execute_query_from_file(
+results = dbm.execute_query_from_file(
     'C:/sql/extract_policies.sql',
     params={'cycle_name': 'Q1-2025'},
     database='AnalyticsDB'
@@ -180,8 +180,8 @@ from irp_integration.exceptions import (
 
 ## API Documentation
 
-For detailed API endpoint documentation, see [docs/api.md](docs/api.md).
+For detailed API endpoint documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](https://github.com/premiumiq/irp-integration/blob/main/LICENSE) file for details.

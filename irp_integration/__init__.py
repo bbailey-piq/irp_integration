@@ -8,7 +8,7 @@ treaty management, and analysis execution.
 
 import logging
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
