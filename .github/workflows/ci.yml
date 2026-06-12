@@ -25,3 +25,27 @@ jobs:
 
       - name: Smoke test - verify import
         run: python -c "from irp_integration import IRPClient; print(f'irp_integration imported successfully on Python {__import__(\"sys\").version}')"
+
+  lint:
+    name: Lint (advisory)
+    runs-on: ubuntu-latest
+    # Advisory only: surfaces type/docstring issues without blocking the PR.
+    # Promote to a required check once the codebase is clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev extra
+        run: pip install ".[dev]"
+
+      - name: Type check (mypy)
+        run: mypy irp_integration
+
+      - name: Docstring lint (ruff)
+        run: ruff check irp_integration
