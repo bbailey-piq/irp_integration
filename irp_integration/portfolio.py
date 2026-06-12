@@ -225,7 +225,7 @@ class PortfolioManager:
         Create new portfolio in EDM.
 
         Args:
-            exposure_id: ID of EDM datasource
+            edm_name: Name of EDM datasource
             portfolio_name: Name for new portfolio
             portfolio_number: Portfolio number (default: "1")
             description: Portfolio description (default: "")
@@ -340,6 +340,10 @@ class PortfolioManager:
             version: Geocode version (default: "22.0")
             hazard_eq: Enable earthquake hazard (default: False)
             hazard_ws: Enable windstorm hazard (default: False)
+            geocode_layer_options: Geocode layer option overrides; a default
+                set is used when None (default: None)
+            hazard_layer_options: Hazard layer option overrides; a default set
+                is used when None (default: None)
 
         Returns:
             Tuple of (job_id, request_body) where request_body is the HTTP request payload

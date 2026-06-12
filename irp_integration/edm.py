@@ -138,7 +138,7 @@ class EDMManager:
             filter: Optional filter string for server names
 
         Returns:
-            Dict containing list of database servers
+            List of database server dicts
         """
         params = {}
         if filter:
@@ -158,7 +158,7 @@ class EDMManager:
             filter: Optional filter string for exposure set names
 
         Returns:
-            Dict containing list of exposure sets
+            List of exposure set dicts
         """
         params = {}
         if filter:
@@ -505,7 +505,7 @@ class EDMManager:
             IRPValidationError: If exposure_id is invalid
             IRPAPIError: If request fails
         """
-        validate_positive_int(exposure_id, "edm_name")
+        validate_positive_int(exposure_id, "exposure_id")
         try:
             response = self.client.request('GET', GET_CEDANTS.format(exposureId=exposure_id))
             return response.json()
@@ -518,16 +518,16 @@ class EDMManager:
         Retrieve lines of business (LOBs) for an EDM.
 
         Args:
-            edm_name: Name of EDM
+            exposure_id: Exposure ID
 
         Returns:
-            Dict containing LOB list
+            List of LOB dicts
 
         Raises:
-            IRPValidationError: If edm_name is invalid
+            IRPValidationError: If exposure_id is invalid
             IRPAPIError: If request fails
         """
-        validate_positive_int(exposure_id, "edm_name")
+        validate_positive_int(exposure_id, "exposure_id")
         try:
             response = self.client.request('GET', GET_LOBS.format(exposureId=exposure_id))
             return response.json()

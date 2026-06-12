@@ -20,9 +20,13 @@ def get_location_header(
 
     Args:
         response: HTTP response object
+        error_context: Context description for error message
 
     Returns:
-        Location header value, or empty string if not found
+        Location header value
+
+    Raises:
+        IRPAPIError: If the Location header is missing
     """
     if 'location' not in response.headers:
         raise IRPAPIError(
@@ -84,7 +88,7 @@ def decode_presign_params(presign_params: Dict[str, Any]) -> Dict[str, str]:
     Decode base64 credentials from MRI import file credentials response.
 
     Args:
-        response_json: Response JSON containing encoded credentials
+        presign_params: Response JSON containing encoded credentials
 
     Returns:
         Dict with decoded credential fields

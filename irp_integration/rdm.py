@@ -694,6 +694,7 @@ class RDMManager:
         4. Submit import job
 
         Args:
+            rdm_name: Name for the imported RDM
             edm_name: Name of the EDM to import into
             rdm_file_path: Path to the .bak file to import
 
