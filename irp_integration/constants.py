@@ -1,4 +1,17 @@
-# API Endpoint Constants
+"""
+API endpoint constants and status/code maps for the Risk Modeler API.
+
+Defines:
+    - Endpoint path templates, grouped by area. Most contain ``str.format``
+      placeholders (e.g. ``{exposureId}``, ``{jobId}``) that callers fill in
+      with resource IDs before issuing the request.
+    - Workflow status groupings: ``WORKFLOW_COMPLETED_STATUSES`` (terminal) and
+      ``WORKFLOW_IN_PROGRESS_STATUSES`` (non-terminal). See ``client.py`` for how
+      these drive polling and the terminal-status contract.
+    - Code maps that translate human-readable names to the short API codes:
+      ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, ``TREATY_ATTACHMENT_LEVELS``,
+      and ``PERSPECTIVE_CODES``.
+"""
 
 # Workflow endpoints
 GET_WORKFLOWS = '/riskmodeler/v1/workflows'
