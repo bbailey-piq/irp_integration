@@ -180,7 +180,14 @@ from irp_integration.exceptions import (
 
 ## API Documentation
 
-For detailed API endpoint documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
+For detailed API documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
+
+`docs/api.md` is generated from the source docstrings and type hints, so it never drifts from the code. To regenerate it after changing docstrings:
+
+```bash
+pip install irp-integration[dev]
+python docs/generate_api_docs.py
+```
 
 ## License
 

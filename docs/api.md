@@ -1,52 +1,120 @@
 # API Reference
 
-Python client library for Moody's Risk Modeler API. Provides managers for exposure data (EDM), portfolios, MRI imports, treaties, analysis execution, RDM export, and reference data lookups.
+_This file is generated from source docstrings by `docs/generate_api_docs.py`. Do not edit by hand — run `python docs/generate_api_docs.py` to regenerate._
+
+Python client library for Moody's Risk Modeler API.
+
+The single entry point is ``IRPClient``, which holds one HTTP client and exposes a manager per functional area; reach operations through those managers.
+
+**Managers (``client.<name>``):**
+
+edm, portfolio, mri_import, treaty, analysis, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
+
+Name-based interface: high-level methods accept human-readable names (EDM names, portfolio names, profile names, treaty names) and resolve them to IDs internally.
+
+S3 transfers for import/export staging are handled transparently by the relevant managers — there is no need to hand-roll boto3.
+
+Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only when the ``[databridge]`` extra and its ODBC driver are installed.
+
+**Pointers:**
+
+- Cross-cutting workflow contract and the terminal-status gotcha → ``client.py``.
+- Domain concepts → each area's module docstring (e.g. ``analysis.py``, ``edm.py``, ``rdm.py``, ``treaty.py``).
 
 ## Table of Contents
 
-- [Client](#client)
-- [EDMManager](#edmmanager)
-- [PortfolioManager](#portfoliomanager)
-- [MRIImportManager](#mriimportmanager)
-- [TreatyManager](#treatymanager)
-- [AnalysisManager](#analysismanager)
-- [RDMManager](#rdmmanager)
-- [RiskDataJobManager](#riskdatajobmanager)
-- [ImportJobManager](#importjobmanager)
-- [ExportJobManager](#exportjobmanager)
-- [S3Manager](#s3manager)
-- [ReferenceDataManager](#referencedatamanager)
-- [DataBridgeManager](#databridgemanager)
-- [Exceptions](#exceptions)
-- [Common Patterns](#common-patterns)
+- [`irp_integration.client`](#irp_integrationclient)
+  - [Client](#class-client)
+- [`irp_integration.edm`](#irp_integrationedm)
+  - [EDMManager](#class-edmmanager)
+- [`irp_integration.portfolio`](#irp_integrationportfolio)
+  - [PortfolioManager](#class-portfoliomanager)
+- [`irp_integration.mri_import`](#irp_integrationmri_import)
+  - [MRIImportManager](#class-mriimportmanager)
+- [`irp_integration.treaty`](#irp_integrationtreaty)
+  - [TreatyManager](#class-treatymanager)
+- [`irp_integration.analysis`](#irp_integrationanalysis)
+  - [AnalysisManager](#class-analysismanager)
+- [`irp_integration.rdm`](#irp_integrationrdm)
+  - [RDMManager](#class-rdmmanager)
+- [`irp_integration.risk_data_job`](#irp_integrationrisk_data_job)
+  - [RiskDataJobManager](#class-riskdatajobmanager)
+- [`irp_integration.import_job`](#irp_integrationimport_job)
+  - [ImportJobManager](#class-importjobmanager)
+- [`irp_integration.export_job`](#irp_integrationexport_job)
+  - [ExportJobManager](#class-exportjobmanager)
+- [`irp_integration.s3`](#irp_integrations3)
+  - [S3Manager](#class-s3manager)
+- [`irp_integration.reference_data`](#irp_integrationreference_data)
+  - [ReferenceDataManager](#class-referencedatamanager)
+- [`irp_integration.databridge`](#irp_integrationdatabridge)
+  - [ExpressionTemplate](#class-expressiontemplate)
+  - [DataBridgeManager](#class-databridgemanager)
+- [`irp_integration.exceptions`](#irp_integrationexceptions)
+  - [IRPIntegrationError](#class-irpintegrationerror)
+  - [IRPAPIError](#class-irpapierror)
+  - [IRPValidationError](#class-irpvalidationerror)
+  - [IRPWorkflowError](#class-irpworkflowerror)
+  - [IRPReferenceDataError](#class-irpreferencedataerror)
+  - [IRPFileError](#class-irpfileerror)
+  - [IRPJobError](#class-irpjoberror)
+  - [IRPDataBridgeError](#class-irpdatabridgeerror)
+  - [IRPDataBridgeConnectionError](#class-irpdatabridgeconnectionerror)
+  - [IRPDataBridgeQueryError](#class-irpdatabridgequeryerror)
+- [`irp_integration.validators`](#irp_integrationvalidators)
+- [`irp_integration.utils`](#irp_integrationutils)
+- [`irp_integration.constants`](#irp_integrationconstants)
 
 ---
 
-## Client
+## `irp_integration.client`
 
-HTTP client with retry logic, workflow polling, and batch workflow execution.
+Client for IRP Integration API requests — HTTP transport plus the cross-cutting contracts every manager relies on.
 
-### Constructor
+This module is the authoritative home for those contracts; other modules point here rather than restating them.
+
+**Async workflow model:**
+
+Most write operations are asynchronous: submit a request, receive a ``201``/``202`` with a ``Location`` header naming the workflow, then poll that workflow until it reaches a terminal status. Building blocks:
+
+- ``execute_workflow(method, path, ...)`` — submit and poll in one call.
+- ``poll_workflow(url)`` — poll a workflow by its ``Location`` URL.
+- ``poll_workflow_to_completion(id)`` — poll a workflow by ID.
+- ``poll_workflow_batch_to_completion(ids)`` — poll many workflows at once.
+
+**Terminal-status gotcha:**
+
+``WORKFLOW_COMPLETED_STATUSES`` is ``FINISHED``, ``FAILED``, and ``CANCELLED``. Polling returns as soon as a workflow reaches *any* of these — including ``FAILED`` and ``CANCELLED``. A returned result is therefore not a success signal; the caller must inspect the returned ``status``.
+
+**Retries:**
+
+Retries are built into the underlying session — 5 attempts with exponential backoff for ``429`` and ``5xx`` responses, across all HTTP methods. Do not add another retry layer on top of these calls.
+
+**Auth/config:**
+
+Credentials and the API base URL come from three environment variables, read once in ``Client.__init__`` (which raises if any is missing).
+
+### `class Client`
+
+Client for Moody's Risk Modeler API.
+
+#### `__init__`
 
 ```python
-Client()
+def __init__(self)
 ```
 
-Reads credentials from environment variables. Configures a `requests.Session` with retry logic (5 retries with exponential backoff for status codes 429, 500, 502, 503, 504).
+Initialize API client with credentials from environment.
 
-**Environment variables (all required):**
+**Environment variables:**
+> RISK_MODELER_BASE_URL: API base URL
+> RISK_MODELER_API_KEY: API authentication key
+> RISK_MODELER_RESOURCE_GROUP_ID: Resource group ID
 
-| Variable | Description |
-|---|---|
-| `RISK_MODELER_BASE_URL` | API base URL |
-| `RISK_MODELER_API_KEY` | API authentication key |
-| `RISK_MODELER_RESOURCE_GROUP_ID` | Resource group ID |
+**Raises:**
+ - **IRPAPIError:**  If any required environment variable is missing
 
-**Raises:** `IRPAPIError` if any required environment variable is missing.
-
----
-
-### `request`
+#### `request`
 
 ```python
 def request(
@@ -57,36 +125,33 @@ def request(
     full_url: Optional[str] = None,
     base_url: Optional[str] = None,
     params: Optional[Dict[str, Any]] = None,
-    json: Optional[Union[Dict[str, Any], List[Any]]] = None,
+    json: Union[Dict[str, Any], List[Any], NoneType] = None,
     headers: Dict[str, str] = {},
     timeout: Optional[int] = None,
     stream: bool = False
-) -> requests.Response
+) -> requests.models.Response
 ```
 
-Make an HTTP request to the API. All API calls should go through this method.
+Make HTTP request to API.
 
-**Args:**
+**Arguments:**
+ - **method:**  HTTP method (GET, POST, PUT, DELETE, etc.)
+ - **path:**  API path (e.g., '/api/v1/datasources')
+ - **full_url:**  Full URL (overrides path/base_url if provided)
+ - **base_url:**  Base URL (overrides default if provided)
+ - **params:**  Query parameters
+ - **json:**  JSON request body
+ - **headers:**  Additional headers
+ - **timeout:**  Request timeout in seconds
+ - **stream:**  Enable streaming response
 
-| Parameter | Description |
-|---|---|
-| `method` | HTTP method (GET, POST, PUT, DELETE, etc.) |
-| `path` | API path (e.g., `/riskmodeler/v1/workflows`) |
-| `full_url` | Full URL (overrides path/base_url if provided) |
-| `base_url` | Base URL override |
-| `params` | Query parameters |
-| `json` | JSON request body |
-| `headers` | Additional headers |
-| `timeout` | Request timeout in seconds (default: 200) |
-| `stream` | Enable streaming response |
+**Returns:**
+> HTTP response object
 
-**Returns:** `requests.Response`
+**Raises:**
+ - **IRPAPIError:**  If HTTP request fails
 
-**Raises:** `IRPAPIError` on HTTP errors or request failures.
-
----
-
-### `get_workflow`
+#### `get_workflow`
 
 ```python
 def get_workflow(self, workflow_id: int) -> Dict[str, Any]
@@ -94,17 +159,17 @@ def get_workflow(self, workflow_id: int) -> Dict[str, Any]
 
 Retrieve workflow status by workflow ID.
 
-**Args:**
+**Arguments:**
+ - **workflow_id:**  Workflow ID
 
-| Parameter | Description |
-|---|---|
-| `workflow_id` | Workflow ID |
+**Returns:**
+> Dict containing workflow status details
 
-**Returns:** Dict containing workflow status details.
+**Raises:**
+ - **IRPValidationError:**  If workflow_id is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `poll_workflow_to_completion`
+#### `poll_workflow_to_completion`
 
 ```python
 def poll_workflow_to_completion(
@@ -115,23 +180,26 @@ def poll_workflow_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll a workflow by ID until it reaches a completed status or times out.
+Poll workflow until completion or timeout.
 
-**Args:**
+Returns on any terminal status (FINISHED, FAILED, or CANCELLED) — the
+caller must inspect the returned ``status``; see the module docstring's
+"terminal-status gotcha".
 
-| Parameter | Description |
-|---|---|
-| `workflow_id` | Workflow ID |
-| `interval` | Polling interval in seconds (default: 10) |
-| `timeout` | Maximum timeout in seconds (default: 600000) |
+**Arguments:**
+ - **workflow_id:**  Workflow ID
+ - **interval:**  Polling interval in seconds
+ - **timeout:**  Maximum timeout in seconds
 
-**Returns:** Final workflow status dict.
+**Returns:**
+> Dict containing the final workflow status details
 
-**Raises:** `IRPJobError` on timeout.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If the workflow times out
+ - **IRPAPIError:**  If a status request fails
 
----
-
-### `poll_workflow`
+#### `poll_workflow`
 
 ```python
 def poll_workflow(
@@ -139,26 +207,24 @@ def poll_workflow(
     workflow_url: str,
     interval: int = 10,
     timeout: int = 600000
-) -> requests.Response
+) -> requests.models.Response
 ```
 
-Poll a workflow by URL until it reaches a completed status or times out. Typically used with the `location` header returned from a workflow submission.
+Poll workflow until completion or timeout.
 
-**Args:**
+**Arguments:**
+ - **workflow_url:**  Full URL to workflow endpoint
+ - **interval:**  Polling interval in seconds
+ - **timeout:**  Maximum timeout in seconds
 
-| Parameter | Description |
-|---|---|
-| `workflow_url` | Full URL to workflow endpoint |
-| `interval` | Polling interval in seconds (default: 10) |
-| `timeout` | Maximum timeout in seconds (default: 600000) |
+**Returns:**
+> Final workflow response
 
-**Returns:** Final workflow `requests.Response`.
+**Raises:**
+ - **IRPValidationError:**  If workflow_url is invalid
+ - **IRPWorkflowError:**  If workflow times out
 
-**Raises:** `IRPWorkflowError` on timeout.
-
----
-
-### `poll_workflow_batch_to_completion`
+#### `poll_workflow_batch_to_completion`
 
 ```python
 def poll_workflow_batch_to_completion(
@@ -166,26 +232,24 @@ def poll_workflow_batch_to_completion(
     workflow_ids: List[int],
     interval: int = 20,
     timeout: int = 600000
-) -> requests.Response
+) -> requests.models.Response
 ```
 
-Poll multiple workflows simultaneously until all complete or timeout. Handles pagination automatically (fetches in pages of 100).
+Poll multiple workflows until all complete or timeout.
 
-**Args:**
+**Arguments:**
+ - **workflow_ids:**  List of workflow IDs to poll
+ - **interval:**  Polling interval in seconds
+ - **timeout:**  Maximum timeout in seconds
 
-| Parameter | Description |
-|---|---|
-| `workflow_ids` | List of workflow IDs to poll |
-| `interval` | Polling interval in seconds (default: 20) |
-| `timeout` | Maximum timeout in seconds (default: 600000) |
+**Returns:**
+> Response with all workflows combined
 
-**Returns:** Response with all workflows combined.
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPWorkflowError:**  If workflows time out
 
-**Raises:** `IRPWorkflowError` on timeout.
-
----
-
-### `execute_workflow`
+#### `execute_workflow`
 
 ```python
 def execute_workflow(
@@ -194,82 +258,127 @@ def execute_workflow(
     path: str,
     *,
     params: Optional[Dict[str, Any]] = None,
-    json: Optional[Union[Dict[str, Any], List[Any]]] = None,
+    json: Union[Dict[str, Any], List[Any], NoneType] = None,
     headers: Dict[str, str] = {},
     timeout: Optional[int] = None,
     stream: bool = False
-) -> requests.Response
+) -> requests.models.Response
 ```
 
-Convenience method that submits a request and automatically polls the workflow to completion. Extracts the workflow URL from the `location` header of 201/202 responses.
+Execute workflow: submit request and poll until completion.
 
-**Args:** Same as `request()` (excluding `full_url` and `base_url`).
+This is a convenience method that combines request submission
+with automatic workflow polling.
 
-**Returns:** Final workflow response after completion.
+**Arguments:**
+ - **method:**  HTTP method (POST, DELETE, etc.)
+ - **path:**  API path
+ - **params:**  Query parameters
+ - **json:**  JSON request body
+ - **headers:**  Additional headers
+ - **timeout:**  Request timeout in seconds
+ - **stream:**  Enable streaming response
 
-**Raises:** `IRPAPIError` if request fails or location header is missing. `IRPWorkflowError` if workflow times out.
+**Returns:**
+> Final workflow response after completion
+
+**Raises:**
+ - **IRPAPIError:**  If request fails
+ - **IRPWorkflowError:**  If workflow times out
 
 ---
 
-## EDMManager
+## `irp_integration.edm`
 
-Manager for EDM (Exposure Data Management) operations including creation, deletion, upgrade, duplication, and associated data retrieval.
+EDM (Exposure Data Management) operations.
 
-### `validate_unique_edms`
+Handles datasource creation, duplication, deletion, and associated data retrieval (cedants, LOBs).
+
+### `class EDMManager`
+
+Manager for EDM (Exposure Data Management) operations.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    portfolio_manager: Optional[Any] = None,
+    analysis_manager: Optional[Any] = None,
+    risk_data_job_manager: Optional[Any] = None
+)
+```
+
+Initialize EDM manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+ - **portfolio_manager:**  Optional PortfolioManager instance
+
+#### `validate_unique_edms`
 
 ```python
 def validate_unique_edms(self, edm_names: List[str]) -> None
 ```
 
-Validate that the given EDM names do not already exist.
+Validate that EDM names are unique (don't already exist).
 
-**Args:**
+**Arguments:**
+ - **edm_names:**  List of EDM names to validate
 
-| Parameter | Description |
-|---|---|
-| `edm_names` | List of EDM names to validate |
+**Raises:**
+ - **IRPAPIError:**  If any EDM names already exist
 
-**Raises:** `IRPAPIError` if any EDM names already exist.
-
----
-
-### `search_database_servers`
+#### `submit_create_edm_jobs`
 
 ```python
-def search_database_servers(self, filter: str = "") -> List[Dict[str, Any]]
+def submit_create_edm_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]
 ```
 
-Search database servers with optional filtering.
+Submit multiple EDM creation jobs.
 
-**Args:**
+**Arguments:**
+ - **edm_data_list:**  List of EDM data dicts, each containing:
+   - server_name: str
+   - edm_name: str
 
-| Parameter | Description |
-|---|---|
-| `filter` | Optional filter string (e.g., `serverName="databridge-1"`) |
+**Returns:**
+> List of job IDs
 
-**Returns:** List of database server dicts.
+**Raises:**
+ - **IRPValidationError:**  If edm_data_list is empty or invalid
+ - **IRPAPIError:**  If EDM creation fails or duplicate names exist
 
----
-
-### `search_exposure_sets`
+#### `search_database_servers`
 
 ```python
-def search_exposure_sets(self, filter: str = "") -> List[Dict[str, Any]]
+def search_database_servers(self, filter: str = '') -> List[Dict[str, Any]]
 ```
 
-Search exposure sets with optional filtering.
+Search database servers.
 
-**Args:**
+**Arguments:**
+ - **filter:**  Optional filter string for server names
 
-| Parameter | Description |
-|---|---|
-| `filter` | Optional filter string |
+**Returns:**
+> List of database server dicts
 
-**Returns:** List of exposure set dicts.
+#### `search_exposure_sets`
 
----
+```python
+def search_exposure_sets(self, filter: str = '') -> List[Dict[str, Any]]
+```
 
-### `create_exposure_set`
+Search exposure sets.
+
+**Arguments:**
+ - **filter:**  Optional filter string for exposure set names
+
+**Returns:**
+> List of exposure set dicts
+
+#### `create_exposure_set`
 
 ```python
 def create_exposure_set(self, name: str) -> int
@@ -277,129 +386,108 @@ def create_exposure_set(self, name: str) -> int
 
 Create a new exposure set.
 
-**Args:**
+**Arguments:**
+ - **name:**  Name of the exposure set
 
-| Parameter | Description |
-|---|---|
-| `name` | Name of the exposure set |
+**Returns:**
+> The exposure set ID
 
-**Returns:** The exposure set ID (int).
-
----
-
-### `search_edms`
+#### `search_edms`
 
 ```python
-def search_edms(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def search_edms(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
 ```
 
-Search EDMs (exposures) with optional filtering and pagination.
+Search EDMs (exposures).
 
-**Args:**
+**Arguments:**
+ - **filter:**  Optional filter string for EDM names
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
 
-| Parameter | Description |
-|---|---|
-| `filter` | Optional filter string (e.g., `exposureName="MyEDM"`) |
-| `limit` | Maximum results per page (default: 100) |
-| `offset` | Offset for pagination (default: 0) |
+**Returns:**
+> List of EDM dictionaries
 
-**Returns:** List of EDM dicts.
-
----
-
-### `search_edms_paginated`
+#### `search_edms_paginated`
 
 ```python
-def search_edms_paginated(self, filter: str = "") -> List[Dict[str, Any]]
+def search_edms_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 ```
 
-Search all EDMs with automatic pagination. Fetches all pages of results.
+Search all EDMs with automatic pagination.
 
-**Args:**
+Fetches all pages of results matching the filter criteria.
 
-| Parameter | Description |
-|---|---|
-| `filter` | Optional filter string |
+**Arguments:**
+ - **filter:**  Optional filter string for EDM names
 
-**Returns:** Complete list of all matching EDMs across all pages.
+**Returns:**
+> Complete list of all matching EDMs across all pages
 
----
-
-### `submit_create_edm_job`
+#### `submit_create_edm_job`
 
 ```python
-def submit_create_edm_job(self, edm_name: str, server_name: str = "databridge-1") -> Tuple[int, Dict[str, Any]]
+def submit_create_edm_job(
+    self,
+    edm_name: str,
+    server_name: str = 'databridge-1'
+) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit a job to create a new EDM (exposure). Validates the database server exists and creates an exposure set if needed.
+Submit job to create a new EDM (exposure).
 
-**Args:**
+**Arguments:**
+ - **edm_name:**  Name of the EDM
+ - **server_name:**  Name of the database server (default: "databridge-1")
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name of the EDM |
-| `server_name` | Database server name (default: `"databridge-1"`) |
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(job_id, request_body)`.
-
----
-
-### `submit_create_edm_jobs`
-
-```python
-def submit_create_edm_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]
-```
-
-Submit multiple EDM creation jobs. Each dict in the list must contain `server_name` and `edm_name`. Validates all names are unique before submission.
-
-**Args:**
-
-| Parameter | Description |
-|---|---|
-| `edm_data_list` | List of dicts with `server_name` and `edm_name` |
-
-**Returns:** List of job IDs.
-
----
-
-### `submit_upgrade_edm_data_version_job`
-
-```python
-def submit_upgrade_edm_data_version_job(self, edm_name: str, edm_version: str) -> Tuple[int, Dict[str, Any]]
-```
-
-Submit a job to upgrade an EDM's data version.
-
-**Args:**
-
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name of the EDM to upgrade |
-| `edm_version` | Target data version (e.g., `"22"`) |
-
-**Returns:** Tuple of `(job_id, request_body)`.
-
----
-
-### `submit_upgrade_edm_data_version_jobs`
+#### `submit_upgrade_edm_data_version_jobs`
 
 ```python
 def submit_upgrade_edm_data_version_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]
 ```
 
-Submit multiple EDM data version upgrade jobs. Each dict must contain `edm_name` and `edm_version`.
+Submit multiple EDM data version upgrade jobs.
 
-**Args:**
+**Arguments:**
+ - **edm_data_list:**  List of EDM upgrade data dicts, each containing:
+   - edm_name: str
+   - edm_version: str
 
-| Parameter | Description |
-|---|---|
-| `edm_data_list` | List of dicts with `edm_name` and `edm_version` |
+**Returns:**
+> List of job IDs
 
-**Returns:** List of job IDs.
+**Raises:**
+ - **IRPValidationError:**  If edm_data_list is empty or invalid
+ - **IRPAPIError:**  If upgrade submission fails or EDM not found
 
----
+#### `submit_upgrade_edm_data_version_job`
 
-### `poll_data_version_upgrade_job_batch_to_completion`
+```python
+def submit_upgrade_edm_data_version_job(self, edm_name: str, edm_version: str) -> Tuple[int, Dict[str, Any]]
+```
+
+Submit job to upgrade EDM data version.
+
+**Arguments:**
+ - **edm_name:**  Name of the EDM to upgrade
+ - **edm_version:**  Target EDM data version (e.g., "22")
+
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If EDM not found or upgrade fails
+
+#### `poll_data_version_upgrade_job_batch_to_completion`
 
 ```python
 def poll_data_version_upgrade_job_batch_to_completion(
@@ -412,120 +500,147 @@ def poll_data_version_upgrade_job_batch_to_completion(
 
 Poll multiple EDM data version upgrade jobs until all complete or timeout.
 
-**Args:**
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-| Parameter | Description |
-|---|---|
-| `job_ids` | List of job IDs |
-| `interval` | Polling interval in seconds (default: 20) |
-| `timeout` | Maximum timeout in seconds (default: 600000) |
+**Returns:**
+> List of final job status details for all jobs
 
-**Returns:** List of final job status dicts.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If jobs time out
+ - **IRPAPIError:**  If polling fails
 
----
-
-### `delete_edm`
+#### `delete_edm`
 
 ```python
 def delete_edm(self, edm_name: str) -> Dict[str, Any]
 ```
 
-Delete an EDM and all its associated analyses. Looks up the EDM by name, deletes all analyses first, then submits the EDM deletion job and polls to completion.
+Delete an EDM and all its associated analyses.
 
-**Args:**
+**Arguments:**
+ - **edm_name:**  Name of EDM to delete
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name of the EDM to delete |
+**Returns:**
+> Dict containing final delete job status
 
-**Returns:** Final delete job status dict.
+**Raises:**
+ - **IRPValidationError:**  If edm_name is invalid
+ - **IRPAPIError:**  If EDM not found or deletion fails
 
----
-
-### `submit_delete_edm_job`
+#### `submit_delete_edm_job`
 
 ```python
 def submit_delete_edm_job(self, exposure_id: int) -> int
 ```
 
-Submit a job to delete an EDM by exposure ID.
+Submit job to delete an EDM (exposure).
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  ID of the exposure (EDM)
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | ID of the exposure (EDM) |
+**Returns:**
+> The job ID
 
-**Returns:** Job ID (int).
-
----
-
-### `get_cedants_by_edm`
+#### `get_cedants_by_edm`
 
 ```python
 def get_cedants_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]
 ```
 
-Retrieve cedants for an EDM. Used in treaty creation to get cedant IDs.
+Retrieve cedants for an EDM.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
+**Returns:**
+> List of cedant data
 
-**Returns:** List of cedant dicts.
+**Raises:**
+ - **IRPValidationError:**  If exposure_id is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_lobs_by_edm`
+#### `get_lobs_by_edm`
 
 ```python
 def get_lobs_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]
 ```
 
-Retrieve lines of business (LOBs) for an EDM. Used in treaty creation for LOB assignment.
+Retrieve lines of business (LOBs) for an EDM.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
+**Returns:**
+> List of LOB dicts
 
-**Returns:** List of LOB dicts.
+**Raises:**
+ - **IRPValidationError:**  If exposure_id is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `submit_edm_import_job`
+#### `submit_edm_import_job`
 
 ```python
 def submit_edm_import_job(
     self,
     edm_name: str,
     edm_file_path: str,
-    server_name: str = "sql-instance-1"
+    server_name: str = 'sql-instance-1'
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit an EDM import job with S3 file upload. Handles the complete workflow: create import folder, upload `.bak` file to S3, create/get exposure set, and submit the import job.
+Submit EDM import job with S3 file upload.
 
-**Args:**
+This method handles the complete EDM import workflow:
+1. Create import folder (get S3 credentials)
+2. Upload EDM .bak file to S3
+3. Create or get existing exposure set
+4. Submit import job
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name for the EDM |
-| `edm_file_path` | Path to the `.bak` file to import |
-| `server_name` | Database server name (default: `"sql-instance-1"`) |
+**Arguments:**
+ - **edm_name:**  Name for the EDM
+ - **edm_file_path:**  Path to the .bak file to import
+ - **server_name:**  Database server name (default: "sql-instance-1")
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If file upload fails
+ - **IRPAPIError:**  If API calls fail
 
 ---
 
-## PortfolioManager
+## `irp_integration.portfolio`
 
-Manager for portfolio operations including creation, retrieval, geocoding, and hazard processing.
+Portfolio management operations.
 
-### `get_portfolio_by_id`
+Handles portfolio creation, retrieval, and geocoding/hazard operations.
+
+### `class PortfolioManager`
+
+Manager for portfolio operations.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    edm_manager: Optional[Any] = None
+)
+```
+
+Initialize portfolio manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+
+#### `get_portfolio_by_id`
 
 ```python
 def get_portfolio_by_id(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]
@@ -533,148 +648,171 @@ def get_portfolio_by_id(self, exposure_id: int, portfolio_id: int) -> Dict[str, 
 
 Retrieve portfolio details by portfolio ID.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `portfolio_id` | Portfolio ID |
+**Returns:**
+> Dict containing portfolio details
 
-**Returns:** Dict containing portfolio details.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_portfolio_metadata`
+#### `get_portfolio_metadata`
 
 ```python
 def get_portfolio_metadata(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]
 ```
 
-Retrieve portfolio metadata (metrics) by portfolio ID.
+Retrieve portfolio metadata by portfolio ID.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `portfolio_id` | Portfolio ID |
+**Returns:**
+> Dict containing portfolio metadata details
 
-**Returns:** Dict containing portfolio metadata.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `search_portfolios`
+#### `search_portfolios`
 
 ```python
-def search_portfolios(self, exposure_id: int, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def search_portfolios(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
 ```
 
-Search portfolios within an exposure with optional filtering and pagination.
+Search portfolios within an exposure.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter string for portfolio names
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `filter` | Optional filter string |
-| `limit` | Maximum results per page (default: 100) |
-| `offset` | Offset for pagination (default: 0) |
+**Returns:**
+> List of portfolio dictionaries
 
-**Returns:** List of portfolio dicts.
-
----
-
-### `search_portfolios_paginated`
+#### `search_portfolios_paginated`
 
 ```python
-def search_portfolios_paginated(self, exposure_id: int, filter: str = "") -> List[Dict[str, Any]]
+def search_portfolios_paginated(self, exposure_id: int, filter: str = '') -> List[Dict[str, Any]]
 ```
 
 Search all portfolios within an exposure with automatic pagination.
 
-**Args:**
+Fetches all pages of results matching the filter criteria.
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `filter` | Optional filter string |
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter string for portfolio names
 
-**Returns:** Complete list of all matching portfolios across all pages.
+**Returns:**
+> Complete list of all matching portfolios across all pages
 
----
-
-### `search_accounts_by_portfolio`
+#### `search_accounts_by_portfolio`
 
 ```python
 def search_accounts_by_portfolio(self, exposure_id: int, portfolio_id: int) -> List[Dict[str, Any]]
 ```
 
-Retrieve accounts within a portfolio.
+Search portfolios within an exposure.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `portfolio_id` | Portfolio ID |
+**Returns:**
+> Dict containing list of accounts
 
-**Returns:** List of account dicts.
+#### `create_portfolios`
 
----
+```python
+def create_portfolios(self, portfolio_data_list: List[Dict[str, Any]]) -> List[int]
+```
 
-### `create_portfolio`
+Create multiple portfolios.
+
+**Arguments:**
+ - **portfolio_data_list:**  List of portfolio data dicts, each containing:
+   - edm_name: str
+   - portfolio_name: str
+   - portfolio_number: str
+   - description: str
+
+**Returns:**
+> List of portfolio IDs
+
+**Raises:**
+ - **IRPValidationError:**  If portfolio_data_list is empty or invalid
+ - **IRPAPIError:**  If portfolio creation fails or duplicate names exist
+
+#### `create_portfolio`
 
 ```python
 def create_portfolio(
     self,
     edm_name: str,
     portfolio_name: str,
-    portfolio_number: str = "",
-    description: str = ""
+    portfolio_number: str = '',
+    description: str = ''
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Create a new portfolio in an EDM. Looks up the EDM by name, validates the portfolio name is unique, and creates the portfolio.
+Create new portfolio in EDM.
 
-**Args:**
+**Arguments:**
+ - **edm_name:**  Name of EDM datasource
+ - **portfolio_name:**  Name for new portfolio
+ - **portfolio_number:**  Portfolio number (default: "1")
+ - **description:**  Portfolio description (default: "")
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name of the EDM |
-| `portfolio_name` | Name for the new portfolio |
-| `portfolio_number` | Portfolio number (defaults to portfolio_name; truncated to 20 chars) |
-| `description` | Portfolio description (auto-generated if empty) |
+**Returns:**
+> Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(portfolio_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `create_portfolios`
+#### `submit_geohaz_jobs`
 
 ```python
-def create_portfolios(self, portfolio_data_list: List[Dict[str, Any]]) -> List[int]
+def submit_geohaz_jobs(self, geohaz_data_list: List[Dict[str, Any]]) -> List[int]
 ```
 
-Create multiple portfolios. Each dict must contain `edm_name`, `portfolio_name`, `portfolio_number`, and `description`.
+Submit multiple geohaz jobs (geocoding and hazard operations).
 
-**Args:**
+**Arguments:**
+ - **geohaz_data_list:**  List of geohaz data dicts, each containing:
+   - edm_name: str
+   - portfolio_name: str
+   - version: str
+   - hazard_eq: bool
+   - hazard_ws: bool
 
-| Parameter | Description |
-|---|---|
-| `portfolio_data_list` | List of portfolio data dicts |
+**Returns:**
+> List of job IDs
 
-**Returns:** List of portfolio IDs.
+**Raises:**
+ - **IRPValidationError:**  If geohaz_data_list is empty or invalid
+ - **IRPAPIError:**  If job submission fails or resources not found
 
----
-
-### `submit_geohaz_job`
+#### `submit_geohaz_job`
 
 ```python
 def submit_geohaz_job(
     self,
     portfolio_name: str,
     edm_name: str,
-    version: str = "22.0",
+    version: str = '22.0',
     hazard_eq: bool = False,
     hazard_ws: bool = False,
     geocode_layer_options: Optional[Dict[str, Any]] = None,
@@ -682,37 +820,27 @@ def submit_geohaz_job(
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit a geocoding and/or hazard processing job on a portfolio. Always runs geocoding; optionally adds earthquake and/or windstorm hazard layers.
+Execute geocoding and/or hazard operations on portfolio.
 
-**Args:**
+**Arguments:**
+ - **portfolio_name:**  Name of the portfolio
+ - **edm_name:**  Name of the EDM containing the portfolio
+ - **version:**  Geocode version (default: "22.0")
+ - **hazard_eq:**  Enable earthquake hazard (default: False)
+ - **hazard_ws:**  Enable windstorm hazard (default: False)
+ - **geocode_layer_options:**  Geocode layer option overrides; a default
+   set is used when None (default: None)
+ - **hazard_layer_options:**  Hazard layer option overrides; a default set
+   is used when None (default: None)
 
-| Parameter | Description |
-|---|---|
-| `portfolio_name` | Name of the portfolio |
-| `edm_name` | Name of the EDM containing the portfolio |
-| `version` | Geocode/hazard engine version (default: `"22.0"`) |
-| `hazard_eq` | Enable earthquake hazard (default: False) |
-| `hazard_ws` | Enable windstorm hazard (default: False) |
-| `geocode_layer_options` | Custom geocode layer options (optional) |
-| `hazard_layer_options` | Custom hazard layer options (optional) |
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If workflow fails or times out
 
----
-
-### `submit_geohaz_jobs`
-
-```python
-def submit_geohaz_jobs(self, geohaz_data_list: List[Dict[str, Any]]) -> List[int]
-```
-
-Submit multiple geohaz jobs. Each dict must contain `edm_name`, `portfolio_name`, `version`, `hazard_eq`, and `hazard_ws`.
-
-**Returns:** List of job IDs.
-
----
-
-### `get_geohaz_job`
+#### `get_geohaz_job`
 
 ```python
 def get_geohaz_job(self, job_id: int) -> Dict[str, Any]
@@ -720,11 +848,17 @@ def get_geohaz_job(self, job_id: int) -> Dict[str, Any]
 
 Retrieve geohaz job status by job ID.
 
-**Returns:** Dict containing job status details.
+**Arguments:**
+ - **job_id:**  Job ID
 
----
+**Returns:**
+> Dict containing job status details
 
-### `poll_geohaz_job_to_completion`
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `poll_geohaz_job_to_completion`
 
 ```python
 def poll_geohaz_job_to_completion(
@@ -735,15 +869,22 @@ def poll_geohaz_job_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll a geohaz job until completion or timeout.
+Poll geohaz job until completion or timeout.
 
-**Returns:** Final job status dict.
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> Final job status details
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
 
-### `poll_geohaz_job_batch_to_completion`
+#### `poll_geohaz_job_batch_to_completion`
 
 ```python
 def poll_geohaz_job_batch_to_completion(
@@ -756,17 +897,48 @@ def poll_geohaz_job_batch_to_completion(
 
 Poll multiple geohaz jobs until all complete or timeout.
 
-**Returns:** List of final job status dicts.
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> List of final job status details for all jobs
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If jobs time out
+ - **IRPAPIError:**  If polling fails
 
 ---
 
-## MRIImportManager
+## `irp_integration.mri_import`
 
-Manager for MRI (Multi-Risk Insurance) data imports. Handles file upload to S3 and import job submission.
+MRI Import Manager for IRP Integration.
 
-### `submit_mri_import_job`
+Handles Multi-Risk Insurance (MRI) data imports via the Platform Import API. Files are uploaded to S3 and import jobs are submitted through the /platform/import/v1 endpoints.
+
+### `class MRIImportManager`
+
+Manager for MRI import operations.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    edm_manager: Optional[Any] = None,
+    portfolio_manager: Optional[Any] = None
+)
+```
+
+Initialize MRI Import Manager.
+
+**Arguments:**
+ - **client:**  Client instance for API requests
+
+#### `submit_mri_import_job`
 
 ```python
 def submit_mri_import_job(
@@ -776,70 +948,131 @@ def submit_mri_import_job(
     accounts_file_path: str,
     locations_file_path: str,
     mapping_file_path: Optional[str] = None,
-    delimiter: str = "TAB"
+    delimiter: str = 'TAB'
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit an MRI import job via the Platform Import API. Handles the complete workflow:
+Submit an MRI import job via the Platform Import API.
 
+This method handles the complete MRI import workflow:
 1. Look up EDM and portfolio
 2. Create import folder (get S3 credentials)
 3. Upload accounts, locations, and optionally mapping files to S3
 4. Submit import job
 
-**Args:**
+**Arguments:**
+ - **edm_name:**  Target EDM name
+ - **portfolio_name:**  Target portfolio name within the EDM
+ - **accounts_file_path:**  Path to accounts CSV file
+ - **locations_file_path:**  Path to locations CSV file
+ - **mapping_file_path:**  Optional path to .mff mapping file
+ - **delimiter:**  File delimiter (default: "TAB")
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Target EDM name |
-| `portfolio_name` | Target portfolio name within the EDM |
-| `accounts_file_path` | Path to accounts CSV file |
-| `locations_file_path` | Path to locations CSV file |
-| `mapping_file_path` | Optional path to `.mff` mapping file |
-| `delimiter` | File delimiter (default: `"TAB"`) |
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If file upload fails
+ - **IRPAPIError:**  If any API call fails
 
 ---
 
-## TreatyManager
+## `irp_integration.treaty`
 
-Manager for reinsurance treaty operations including creation, search, and LOB assignment.
+Treaty Manager for IRP Integration.
 
-### `search_treaties`
+Handles treaty-related operations including creation, retrieval, and Line of Business (LOB) assignments.
+
+### `class TreatyManager`
+
+Manager for treaty operations.
+
+#### `__init__`
 
 ```python
-def search_treaties(self, exposure_id: int, filter: str = '', limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    edm_manager=None,
+    reference_data_manager=None
+)
 ```
 
-Search treaties for a given exposure ID with optional filtering and pagination.
+Initialize Treaty Manager.
 
-**Args:**
+**Arguments:**
+ - **client:**  Client instance for API requests
+ - **edm_manager:**  Optional EDMManager instance (lazy-loaded if None)
+ - **reference_data_manager:**  Optional ReferenceDataManager instance (lazy-loaded if None)
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `filter` | Optional filter string |
-| `limit` | Maximum results per page (default: 100) |
-| `offset` | Offset for pagination (default: 0) |
+#### `search_treaties`
 
-**Returns:** List of treaty dicts.
+```python
+def search_treaties(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
 
----
+Search treaties for a given exposure ID.
 
-### `search_treaties_paginated`
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter string
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of treaty dictionaries
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If API request fails
+
+#### `search_treaties_paginated`
 
 ```python
 def search_treaties_paginated(self, exposure_id: int, filter: str = '') -> List[Dict[str, Any]]
 ```
 
-Search all treaties with automatic pagination.
+Search all treaties for a given exposure ID with automatic pagination.
 
-**Returns:** Complete list of all matching treaties across all pages.
+Fetches all pages of results matching the filter criteria.
 
----
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter string
 
-### `create_treaty`
+**Returns:**
+> Complete list of all matching treaties across all pages
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If API request fails
+
+#### `create_treaties`
+
+```python
+def create_treaties(self, treaty_data_list: List[Dict[str, Any]]) -> List[int]
+```
+
+Create multiple treaties.
+
+**Arguments:**
+ - **treaty_data_list:**  List of treaty data dicts, each containing all required treaty fields
+
+**Returns:**
+> List of treaty IDs
+
+**Raises:**
+ - **IRPValidationError:**  If treaty_data_list is empty or invalid
+ - **IRPAPIError:**  If treaty creation fails or EDM not found
+
+#### `create_treaty`
 
 ```python
 def create_treaty(
@@ -865,167 +1098,140 @@ def create_treaty(
     pct_reinstatement_charge: float,
     aggregate_limit: float,
     aggregate_deductible: float,
-    priority: int,
+    priority: int
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Create a treaty with full parameters. Looks up the EDM, cedant, and currency by name, then creates the treaty and auto-assigns all LOBs from the EDM.
+Create a treaty with provided parameters.
 
-**Key Args:**
+**Arguments:**
+ - **edm_name:**  EDM name to create the treaty in
+ - **treaty_name:**  Treaty name
+ - **treaty_number:**  Treaty number (max 20 chars)
+ - **treaty_type:**  Treaty type (must be in TREATY_TYPES)
+ - **per_risk_limit:**  Per risk limit amount
+ - **occurrence_limit:**  Occurrence limit amount
+ - **attachment_point:**  Attachment point amount
+ - **inception_date:**  Inception date (ISO format)
+ - **expiration_date:**  Expiration date (ISO format)
+ - **currency_name:**  Currency name (e.g., "US Dollar")
+ - **attachment_basis:**  Attachment basis (must be in TREATY_ATTACHMENT_BASES)
+ - **attachment_level:**  Attachment level (must be in TREATY_ATTACHMENT_LEVELS)
+ - **pct_covered:**  Percent covered
+ - **pct_placed:**  Percent placed
+ - **pct_share:**  Percent share
+ - **pct_retention:**  Percent retention
+ - **premium:**  Premium amount
+ - **num_reinstatements:**  Number of reinstatements
+ - **pct_reinstatement_charge:**  Percent reinstatement charge
+ - **aggregate_limit:**  Aggregate limit amount
+ - **aggregate_deductible:**  Aggregate deductible amount
+ - **priority:**  Priority
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | EDM name to create the treaty in |
-| `treaty_name` | Treaty name |
-| `treaty_number` | Treaty number (max 20 chars) |
-| `treaty_type` | Must be one of: `Catastrophe`, `Corporate Catastrophe`, `Non-Catastrophe`, `Quota Share`, `Stop Loss`, `Surplus Share`, `Working Excess` |
-| `attachment_basis` | Must be one of: `Losses Occurring`, `Risks Attaching` |
-| `attachment_level` | Must be one of: `Account`, `Portfolio`, `Policy`, `Location` |
-| `inception_date` | ISO format date string |
-| `expiration_date` | ISO format date string |
-| `currency_name` | Currency name (e.g., `"US Dollar"`) |
+**Returns:**
+> Tuple of (treaty_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(treaty_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If treaty creation fails or EDM not found
 
----
-
-### `create_treaties`
-
-```python
-def create_treaties(self, treaty_data_list: List[Dict[str, Any]]) -> List[int]
-```
-
-Create multiple treaties from a list of data dicts containing all required treaty fields.
-
-**Returns:** List of treaty IDs.
-
----
-
-### `create_treaty_lob`
+#### `create_treaty_lob`
 
 ```python
 def create_treaty_lob(self, exposure_id: int, treaty_id: int, lob_id: int, lobName: str) -> int
 ```
 
-Create a Line of Business (LOB) assignment for a treaty.
+Create a Line of Business (LOB) for a treaty.
 
-**Args:**
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **treaty_id:**  Treaty ID
+ - **lob_id:**  LOB ID
+ - **lobName:**  LOB Name
 
-| Parameter | Description |
-|---|---|
-| `exposure_id` | Exposure ID |
-| `treaty_id` | Treaty ID |
-| `lob_id` | LOB ID |
-| `lobName` | LOB name |
+**Returns:**
+> LOB ID of the created LOB
 
-**Returns:** Created LOB ID (int).
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If LOB creation fails
 
 ---
 
-## AnalysisManager
+## `irp_integration.analysis`
 
-Manager for analysis operations including portfolio analysis submission, job tracking, analysis grouping, result retrieval (ELT, EP, Stats, PLT), and analysis deletion.
+Analysis management operations.
 
-### `get_analysis_by_id`
+Handles portfolio analysis submission, job tracking, and analysis group creation.
+
+### `class AnalysisManager`
+
+Manager for analysis operations.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    reference_data_manager: Optional[Any] = None,
+    treaty_manager: Optional[Any] = None,
+    edm_manager: Optional[Any] = None,
+    portfolio_manager: Optional[Any] = None
+)
+```
+
+Initialize analysis manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+ - **reference_data_manager:**  Optional ReferenceDataManager instance
+
+#### `get_analysis_by_id`
 
 ```python
 def get_analysis_by_id(self, analysis_id: int) -> Dict[str, Any]
 ```
 
-Retrieve analysis details by ID.
+Retrieve analysis by ID.
 
-**Returns:** Dict containing analysis details.
+**Arguments:**
+ - **analysis_id:**  Analysis ID
 
----
+**Returns:**
+> Dict containing analysis details
 
-### `get_analysis_by_name`
+**Raises:**
+ - **IRPValidationError:**  If analysis_id is invalid
+ - **IRPAPIError:**  If request fails
 
-```python
-def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> Dict[str, Any]
-```
-
-Get an analysis by name and EDM name.
-
-**Args:**
-
-| Parameter | Description |
-|---|---|
-| `analysis_name` | Name of the analysis |
-| `edm_name` | Name of the EDM |
-
-**Returns:** Dict containing analysis details.
-
-**Raises:** `IRPAPIError` if not found or multiple matches.
-
----
-
-### `get_analysis_by_app_analysis_id`
+#### `submit_portfolio_analysis_jobs`
 
 ```python
-def get_analysis_by_app_analysis_id(self, app_analysis_id: int) -> Dict[str, Any]
+def submit_portfolio_analysis_jobs(self, analysis_data_list: List[Dict[str, Any]]) -> List[int]
 ```
 
-Retrieve analysis by application analysis ID (the ID used in the UI).
+Submit multiple portfolio analysis jobs.
 
-**Returns:** Dict containing `analysisId`, `exposureResourceId`, `analysisName`, `engineType`, `uri`, and `raw` (full response).
+**Arguments:**
+ - **analysis_data_list:**  List of analysis job data dicts, each containing:
+   - edm_name: str
+   - portfolio_name: str
+   - job_name: str
+   - analysis_profile_name: str
+   - output_profile_name: str
+   - event_rate_scheme_name: str
+   - treaty_names: List[str]
+   - tag_names: List[str]
 
----
+**Returns:**
+> List of job IDs
 
-### `search_analyses`
+**Raises:**
+ - **IRPValidationError:**  If analysis_data_list is empty or invalid
+ - **IRPAPIError:**  If analysis submission fails or duplicate analysis names exist
 
-```python
-def search_analyses(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
-```
-
-Search analysis results with optional filtering and pagination.
-
-**Args:**
-
-| Parameter | Description |
-|---|---|
-| `filter` | Optional filter string (e.g., `analysisName = "MyAnalysis"`) |
-| `limit` | Maximum results per page (default: 100) |
-| `offset` | Offset for pagination (default: 0) |
-
-**Returns:** List of analysis result dicts.
-
----
-
-### `search_analyses_paginated`
-
-```python
-def search_analyses_paginated(self, filter: str = "") -> List[Dict[str, Any]]
-```
-
-Search all analysis results with automatic pagination.
-
-**Returns:** Complete list of all matching analysis results across all pages.
-
----
-
-### `search_analysis_jobs`
-
-```python
-def search_analysis_jobs(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
-```
-
-Search analysis jobs with optional filtering.
-
-**Returns:** List of analysis job dicts.
-
----
-
-### `delete_analysis`
-
-```python
-def delete_analysis(self, analysis_id: int) -> None
-```
-
-Delete an analysis by ID.
-
----
-
-### `submit_portfolio_analysis_job`
+#### `submit_portfolio_analysis_job`
 
 ```python
 def submit_portfolio_analysis_job(
@@ -1038,7 +1244,7 @@ def submit_portfolio_analysis_job(
     event_rate_scheme_name: str,
     treaty_names: List[str],
     tag_names: List[str],
-    currency: Dict[str, str] = None,
+    currency: Optional[Dict[str, str]] = None,
     skip_duplicate_check: bool = False,
     franchise_deductible: bool = False,
     min_loss_threshold: float = 1.0,
@@ -1047,130 +1253,32 @@ def submit_portfolio_analysis_job(
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit a portfolio analysis job. Resolves all reference data (model profile, output profile, event rate scheme, treaties, tags) by name before submission. Automatically determines job type (DLM vs HD) from the model profile.
+Submit portfolio analysis job (submits but doesn't wait).
 
-**Key Args:**
+**Arguments:**
+ - **edm_name:**  Name of the EDM (exposure database)
+ - **portfolio_name:**  Name of the portfolio to analyze
+ - **job_name:**  Name for analysis job (must be unique)
+ - **analysis_profile_name:**  Model profile name
+ - **output_profile_name:**  Output profile name
+ - **event_rate_scheme_name:**  Event rate scheme name (required for DLM, optional for HD)
+ - **treaty_names:**  List of treaty names to apply
+ - **tag_names:**  List of tag names to apply
+ - **currency:**  Optional currency configuration
+ - **skip_duplicate_check:**  Skip checking if analysis name already exists (for batch operations)
+ - **franchise_deductible:**  Whether to apply franchise deductible (default: False)
+ - **min_loss_threshold:**  Minimum loss threshold value (default: 0)
+ - **treat_construction_occupancy_as_unknown:**  Treat construction/occupancy as unknown (default: True)
+ - **num_max_loss_event:**  Number of max loss events to include (default: 1)
 
-| Parameter | Description |
-|---|---|
-| `edm_name` | Name of the EDM |
-| `portfolio_name` | Name of the portfolio to analyze |
-| `job_name` | Unique name for the analysis job |
-| `analysis_profile_name` | Model profile name |
-| `output_profile_name` | Output profile name |
-| `event_rate_scheme_name` | Event rate scheme name (required for DLM, optional for HD) |
-| `treaty_names` | List of treaty names to apply |
-| `tag_names` | List of tag names to apply |
-| `currency` | Optional currency config (auto-resolved if None) |
-| `skip_duplicate_check` | Skip name uniqueness check (for batch use) |
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If request fails or EDM/portfolio not found
 
----
-
-### `submit_portfolio_analysis_jobs`
-
-```python
-def submit_portfolio_analysis_jobs(self, analysis_data_list: List[Dict[str, Any]]) -> List[int]
-```
-
-Submit multiple portfolio analysis jobs. Pre-validates that no analysis names already exist. Each dict must contain: `edm_name`, `portfolio_name`, `job_name`, `analysis_profile_name`, `output_profile_name`, `event_rate_scheme_name`, `treaty_names`, `tag_names`.
-
-**Returns:** List of job IDs.
-
----
-
-### `get_analysis_job`
-
-```python
-def get_analysis_job(self, job_id: int) -> Dict[str, Any]
-```
-
-Retrieve analysis job status by job ID.
-
-**Returns:** Dict containing job status details.
-
----
-
-### `poll_analysis_job_to_completion`
-
-```python
-def poll_analysis_job_to_completion(
-    self,
-    job_id: int,
-    interval: int = 10,
-    timeout: int = 600000
-) -> Dict[str, Any]
-```
-
-Poll an analysis job until completion or timeout.
-
-**Returns:** Final job status dict.
-
-**Raises:** `IRPJobError` on timeout.
-
----
-
-### `poll_analysis_job_batch_to_completion`
-
-```python
-def poll_analysis_job_batch_to_completion(
-    self,
-    job_ids: List[int],
-    interval: int = 20,
-    timeout: int = 600000
-) -> List[Dict[str, Any]]
-```
-
-Poll multiple analysis jobs until all complete or timeout. Handles pagination.
-
-**Returns:** List of final job status dicts.
-
-**Raises:** `IRPJobError` on timeout.
-
----
-
-### `submit_analysis_grouping_job`
-
-```python
-def submit_analysis_grouping_job(
-    self,
-    group_name: str,
-    analysis_names: List[str],
-    simulate_to_plt: bool = False,
-    num_simulations: int = 50000,
-    propagate_detailed_losses: bool = False,
-    reporting_window_start: str = "01/01/2021",
-    simulation_window_start: str = "01/01/2021",
-    simulation_window_end: str = "12/31/2021",
-    region_peril_simulation_set: List[Dict[str, Any]] = None,
-    description: str = "",
-    currency: Dict[str, str] = None,
-    analysis_edm_map: Optional[Dict[str, str]] = None,
-    group_names: Optional[set] = None,
-    skip_missing: bool = True
-) -> Dict[str, Any]
-```
-
-Submit an analysis grouping job to combine multiple analyses or groups. Resolves analysis/group names to URIs. Auto-builds `regionPerilSimulationSet` when not provided (required for mixed ELT/PLT grouping).
-
-**Key Args:**
-
-| Parameter | Description |
-|---|---|
-| `group_name` | Name for the analysis group |
-| `analysis_names` | List of analysis and/or group names to include |
-| `simulate_to_plt` | Whether to simulate to PLT (default: False) |
-| `num_simulations` | Number of simulations (default: 50000) |
-| `analysis_edm_map` | Optional mapping of analysis names to EDM names for disambiguation |
-| `group_names` | Optional set of known group names (looked up differently from analyses) |
-| `skip_missing` | Skip missing analyses instead of raising errors (default: True) |
-
-**Returns:** Dict with `job_id`, `skipped`, `skipped_items`, `included_items`. If all items are missing, returns `job_id=None` and `skipped=True`.
-
----
-
-### `submit_analysis_grouping_jobs`
+#### `submit_analysis_grouping_jobs`
 
 ```python
 def submit_analysis_grouping_jobs(
@@ -1182,31 +1290,131 @@ def submit_analysis_grouping_jobs(
 ) -> List[int]
 ```
 
-Submit multiple analysis grouping jobs. Each dict must contain `group_name` and `analysis_names`.
+Submit multiple analysis grouping jobs.
 
-**Returns:** List of job IDs (excludes skipped jobs).
+**Arguments:**
+ - **grouping_data_list:**  List of grouping data dicts, each containing:
+   - group_name: str
+   - analysis_names: List[str] (can include both analysis names and group names)
+ - **analysis_edm_map:**  Optional mapping of analysis names to EDM names.
+   Used to look up analyses by name + EDM (since analysis names are only
+   unique within an EDM). If not provided, lookups use name only.
+ - **group_names:**  Optional set of known group names. Items in this set are
+   looked up as groups (by name only), all others are looked up as
+   analyses (by name + EDM if mapping provided).
+ - **skip_missing:**  If True (default), skip analyses/groups that don't exist.
+   Jobs where all items are missing will be skipped entirely.
 
----
+**Returns:**
+> List of job IDs (excludes skipped jobs)
 
-### `build_region_peril_simulation_set`
+**Raises:**
+ - **IRPValidationError:**  If grouping_data_list is empty or invalid
+ - **IRPAPIError:**  If grouping submission fails or analysis names not found
+
+#### `build_region_peril_simulation_set`
 
 ```python
 def build_region_peril_simulation_set(self, analysis_ids: List[int]) -> List[Dict[str, Any]]
 ```
 
-Build `regionPerilSimulationSet` from analysis/group IDs for grouping requests. Handles both ELT (DLM) and PLT (HD) frameworks, compound perils, and engine version merging.
+Build regionPerilSimulationSet from analysis/group IDs for grouping requests.
 
-**Args:**
+This method fetches regions for each analysis/group and builds the required
+regionPerilSimulationSet structure. This is required for mixed ELT/PLT grouping
+(combining DLM and HD analyses/groups).
 
-| Parameter | Description |
-|---|---|
-| `analysis_ids` | List of analysis or group IDs |
+For ELT framework (DLM):
+    - eventRateSchemeId comes from regions response (rateSchemeId)
+    - simulationSetId is looked up from SimulationSet table using eventRateSchemeId
 
-**Returns:** List of region/peril simulation set entry dicts. Returns empty list if all analyses have compound perils or if pure ELT with unambiguous rate schemes.
+For PLT framework (HD):
+    - eventRateSchemeId = 0 (always zero for PLT in grouping requests)
+    - simulationSetId = petId from regions response
 
----
+For Compound Perils (subPeril contains "+"):
+    - If ALL analyses have compound perils -> return empty array
+    - If SOME analyses have compound perils -> all analyses contribute normally
+    - The API handles event correlation internally when array is empty
+    - Examples: "Surge + Wind", "Tornado + Hail + Wind"
 
-### `get_analysis_grouping_job`
+**Arguments:**
+ - **analysis_ids:**  List of analysis or group IDs to include
+
+**Returns:**
+> List of region/peril simulation set entries, each containing:
+>     - engineVersion: Engine version (e.g., "RL23", "HDv2.0")
+>     - eventRateSchemeId: Event rate scheme ID (0 for PLT)
+>     - modelRegionCode: Model region code (subRegion from regions)
+>     - modelVersion: Model version (looked up from SoftwareModelVersionMap)
+>     - perilCode: Peril code (e.g., "EQ", "WS", "FL")
+>     - regionCode: Region code (e.g., "NA", "US")
+>     - simulationPeriods: Number of simulation periods
+>     - simulationSetId: Simulation set ID
+> 
+> Returns empty list if ALL analyses have compound perils.
+
+**Raises:**
+ - **IRPAPIError:**  If any API calls fail
+
+#### `submit_analysis_grouping_job`
+
+```python
+def submit_analysis_grouping_job(
+    self,
+    group_name: str,
+    analysis_names: List[str],
+    simulate_to_plt: bool = False,
+    num_simulations: int = 50000,
+    propagate_detailed_losses: bool = False,
+    reporting_window_start: str = '01/01/2021',
+    simulation_window_start: str = '01/01/2021',
+    simulation_window_end: str = '12/31/2021',
+    region_peril_simulation_set: Optional[List[Dict[str, Any]]] = None,
+    description: str = '',
+    currency: Optional[Dict[str, str]] = None,
+    analysis_edm_map: Optional[Dict[str, str]] = None,
+    group_names: Optional[set] = None,
+    skip_missing: bool = True
+) -> Dict[str, Any]
+```
+
+Submit analysis grouping job.
+
+**Arguments:**
+ - **group_name:**  Name for analysis group
+ - **analysis_names:**  List of names to include in the group (can be analyses or groups)
+ - **simulate_to_plt:**  Whether to simulate to PLT (default: True)
+ - **num_simulations:**  Number of simulations (default: 50000)
+ - **propagate_detailed_losses:**  Whether to propagate detailed losses (default: False)
+ - **reporting_window_start:**  Reporting window start date (default: "01/01/2021")
+ - **simulation_window_start:**  Simulation window start date (default: "01/01/2021")
+ - **simulation_window_end:**  Simulation window end date (default: "12/31/2021")
+ - **region_peril_simulation_set:**  Region/peril simulation set (default: None)
+ - **description:**  Group description (default: "")
+ - **currency:**  Currency configuration (default: None, uses system default)
+ - **analysis_edm_map:**  Optional mapping of analysis names to EDM names.
+   Used to look up analyses by name + EDM (since analysis names are only
+   unique within an EDM). If not provided, lookups use name only.
+ - **group_names:**  Optional set of known group names. Items in this set are
+   looked up as groups (by name only), all others are looked up as
+   analyses (by name + EDM if mapping provided).
+ - **skip_missing:**  If True (default), skip analyses/groups that don't exist
+   instead of raising an error. If all items are missing, returns
+   a result with job_id=None and skipped=True.
+
+**Returns:**
+> Dict containing:
+>     - job_id: Analysis group job ID (int), or None if skipped
+>     - skipped: True if job was skipped (all analyses missing)
+>     - skipped_items: List of item names that were not found and skipped
+>     - included_items: List of item names that were found and included
+
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If request fails, or if skip_missing=False and items not found
+
+#### `get_analysis_grouping_job`
 
 ```python
 def get_analysis_grouping_job(self, job_id: int) -> Dict[str, Any]
@@ -1214,11 +1422,17 @@ def get_analysis_grouping_job(self, job_id: int) -> Dict[str, Any]
 
 Retrieve analysis grouping job status by job ID.
 
-**Returns:** Dict containing job status details.
+**Arguments:**
+ - **job_id:**  Job ID
 
----
+**Returns:**
+> Dict containing job status details
 
-### `poll_analysis_grouping_job_to_completion`
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `poll_analysis_grouping_job_to_completion`
 
 ```python
 def poll_analysis_grouping_job_to_completion(
@@ -1229,15 +1443,22 @@ def poll_analysis_grouping_job_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll an analysis grouping job until completion or timeout.
+Poll analysis grouping job until completion or timeout.
 
-**Returns:** Final job status dict.
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> Final job status details
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
 
-### `poll_analysis_grouping_job_batch_to_completion`
+#### `poll_analysis_grouping_job_batch_to_completion`
 
 ```python
 def poll_analysis_grouping_job_batch_to_completion(
@@ -1250,13 +1471,209 @@ def poll_analysis_grouping_job_batch_to_completion(
 
 Poll multiple analysis grouping jobs until all complete or timeout.
 
-**Returns:** List of final job status dicts.
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> List of final job status details for all jobs
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If jobs time out
+ - **IRPAPIError:**  If polling fails
 
-### `get_elt`
+#### `get_analysis_job`
+
+```python
+def get_analysis_job(self, job_id: int) -> Dict[str, Any]
+```
+
+Retrieve analysis job status by job ID.
+
+**Arguments:**
+ - **job_id:**  Job ID
+
+**Returns:**
+> Dict containing job status details
+
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `poll_analysis_job_to_completion`
+
+```python
+def poll_analysis_job_to_completion(
+    self,
+    job_id: int,
+    interval: int = 10,
+    timeout: int = 600000
+) -> Dict[str, Any]
+```
+
+Poll analysis job until completion or timeout.
+
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
+
+**Returns:**
+> Final job status details
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
+
+#### `search_analysis_jobs`
+
+```python
+def search_analysis_jobs(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search analysis jobs with optional filtering.
+
+**Arguments:**
+ - **filter:**  Optional filter string (default: "")
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of analysis job dicts
+
+**Raises:**
+ - **IRPAPIError:**  If search fails
+
+#### `poll_analysis_job_batch_to_completion`
+
+```python
+def poll_analysis_job_batch_to_completion(
+    self,
+    job_ids: List[int],
+    interval: int = 20,
+    timeout: int = 600000
+) -> List[Dict[str, Any]]
+```
+
+Poll multiple analysis jobs until all complete or timeout.
+
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
+
+**Returns:**
+> List of final job status details for all jobs
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If jobs time out
+ - **IRPAPIError:**  If polling fails
+
+#### `search_analyses`
+
+```python
+def search_analyses(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search analysis results with optional filtering.
+
+**Arguments:**
+ - **filter:**  Optional filter string (default: "")
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of analysis result dicts
+
+**Raises:**
+ - **IRPAPIError:**  If search fails
+
+#### `search_analyses_paginated`
+
+```python
+def search_analyses_paginated(self, filter: str = '') -> List[Dict[str, Any]]
+```
+
+Search all analysis results with automatic pagination.
+
+Fetches all pages of results matching the filter criteria.
+
+**Arguments:**
+ - **filter:**  Optional filter string (default: "")
+
+**Returns:**
+> Complete list of all matching analysis results across all pages
+
+**Raises:**
+ - **IRPAPIError:**  If search fails
+
+#### `get_analysis_by_name`
+
+```python
+def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> Dict[str, Any]
+```
+
+Get an analysis by name and EDM name.
+
+**Arguments:**
+ - **analysis_name:**  Name of the analysis
+ - **edm_name:**  Name of the EDM (exposure database)
+
+**Returns:**
+> Dict containing analysis details
+
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If analysis not found or multiple matches
+
+#### `delete_analysis`
+
+```python
+def delete_analysis(self, analysis_id: int) -> None
+```
+
+Delete an analysis by ID.
+
+**Arguments:**
+ - **analysis_id:**  Analysis ID to delete
+
+**Raises:**
+ - **IRPValidationError:**  If analysis_id is invalid
+ - **IRPAPIError:**  If deletion fails
+
+#### `get_analysis_by_app_analysis_id`
+
+```python
+def get_analysis_by_app_analysis_id(self, app_analysis_id: int) -> Dict[str, Any]
+```
+
+Retrieve analysis by appAnalysisId (the ID used in the application/UI).
+
+**Arguments:**
+ - **app_analysis_id:**  Application analysis ID (e.g., 35810)
+
+**Returns:**
+> Dict containing analysisId and exposureResourceId
+
+**Raises:**
+ - **IRPValidationError:**  If app_analysis_id is invalid
+ - **IRPAPIError:**  If request fails or analysis not found
+
+#### `get_elt`
 
 ```python
 def get_elt(
@@ -1272,22 +1689,22 @@ def get_elt(
 
 Retrieve Event Loss Table (ELT) for an analysis.
 
-**Args:**
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+ - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
+ - **limit:**  Optional maximum number of records to return
+ - **offset:**  Optional number of records to skip (for pagination)
 
-| Parameter | Description |
-|---|---|
-| `analysis_id` | Analysis ID |
-| `perspective_code` | One of `GR` (Gross), `GU` (Ground-Up), `RL` (Reinsurance Layer) |
-| `exposure_resource_id` | Exposure resource ID (portfolio ID from analysis) |
-| `filter` | Optional filter (e.g., `"eventId IN (1, 2, 3)"`) |
-| `limit` | Maximum records to return |
-| `offset` | Records to skip (for pagination) |
+**Returns:**
+> List of ELT records containing eventId, positionValue, stdDevI, stdDevC, etc.
 
-**Returns:** List of ELT records.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_ep`
+#### `get_ep`
 
 ```python
 def get_ep(
@@ -1298,21 +1715,21 @@ def get_ep(
 ) -> List[Dict[str, Any]]
 ```
 
-Retrieve Exceedance Probability (EP) metrics for an analysis.
+Retrieve EP (Exceedance Probability) metrics for an analysis.
 
-**Args:**
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+ - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
 
-| Parameter | Description |
-|---|---|
-| `analysis_id` | Analysis ID |
-| `perspective_code` | One of `GR`, `GU`, `RL` |
-| `exposure_resource_id` | Exposure resource ID |
+**Returns:**
+> List of EP curve data (OEP, AEP, CEP, TCE curves)
 
-**Returns:** List of EP curve data (OEP, AEP, CEP, TCE).
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_stats`
+#### `get_stats`
 
 ```python
 def get_stats(
@@ -1325,19 +1742,19 @@ def get_stats(
 
 Retrieve statistics for an analysis.
 
-**Args:**
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+ - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
 
-| Parameter | Description |
-|---|---|
-| `analysis_id` | Analysis ID |
-| `perspective_code` | One of `GR`, `GU`, `RL` |
-| `exposure_resource_id` | Exposure resource ID |
+**Returns:**
+> List of statistical metrics
 
-**Returns:** List of statistical metrics.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_plt`
+#### `get_plt`
 
 ```python
 def get_plt(
@@ -1351,67 +1768,117 @@ def get_plt(
 ) -> List[Dict[str, Any]]
 ```
 
-Retrieve Period Loss Table (PLT) for an analysis. Only available for HD (High Definition) analyses.
+Retrieve Period Loss Table (PLT) for an analysis.
 
-**Args:**
+Note: PLT is only available for HD (High Definition) analyses.
 
-| Parameter | Description |
-|---|---|
-| `analysis_id` | Analysis ID |
-| `perspective_code` | One of `GR`, `GU`, `RL` |
-| `exposure_resource_id` | Exposure resource ID |
-| `filter` | Optional filter string |
-| `limit` | Maximum records (default: 100000) |
-| `offset` | Records to skip |
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+ - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
+ - **limit:**  Optional maximum number of records to return (default: 100000)
+ - **offset:**  Optional number of records to skip (for pagination)
 
-**Returns:** List of PLT records.
+**Returns:**
+> List of PLT records containing event dates, loss dates, and loss amounts
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
 
-### `get_regions`
+#### `get_regions`
 
 ```python
 def get_regions(self, analysis_id: int) -> List[Dict[str, Any]]
 ```
 
-Retrieve region/peril breakdown for an analysis or group. Used to build the `regionPerilSimulationSet` for grouping requests.
+Retrieve region/peril breakdown for an analysis or group.
 
-**Returns:** List of region dicts containing `region`, `subRegion`, `peril`, `rateSchemeId`, `framework`, `petId`, `engineVersion`, etc.
+This is used to build the regionPerilSimulationSet for grouping requests.
+Each region entry contains framework, peril, region codes, and simulation identifiers
+(rateSchemeId for ELT, petId for PLT).
 
----
+**Arguments:**
+ - **analysis_id:**  Analysis or group ID
 
-### `submit_analysis_export_job`
+**Returns:**
+> List of region dicts containing:
+>     - region: Region code (e.g., "NA")
+>     - subRegion: Sub-region code (e.g., "I2")
+>     - peril: Peril code (e.g., "EQ", "WS")
+>     - rateSchemeId: Event rate scheme ID (for ELT framework)
+>     - framework: Framework type ("ELT" or "PLT")
+>     - analysisId: The analysis ID
+>     - modelProfileId: Model profile ID
+>     - petId: PET ID (for PLT/HD framework)
+>     - numSamples: Number of samples
+>     - periods: Number of periods
+>     - applyContractFlag: Contract application flag
+>     - engineVersion: Engine version (e.g., "RL23", "HDv2.0")
+
+**Raises:**
+ - **IRPValidationError:**  If analysis_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `submit_analysis_export_job`
 
 ```python
 def submit_analysis_export_job(
     self,
     analysis_id: int,
     loss_details: List[Dict[str, Any]],
-    file_extension: str = "PARQUET"
+    file_extension: str = 'PARQUET'
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit an analysis results export job. Accepts either an `analysisId` or `appAnalysisId` — tries `analysisId` first, then falls back to `appAnalysisId`. Resolves the analysis to a resource URI and submits the export to the platform export API.
+Submit an analysis results export job.
 
-**Args:**
+**Arguments:**
+ - **analysis_id:**  List of analysis IDs to export
+ - **loss_details:**  List of loss detail configurations, each containing:
+   - metricType: str (e.g., "LOSS_TABLES")
+   - outputLevels: List[str] (e.g., ["Portfolio"])
+   - perspectiveCodes: List[str] (e.g., ["GU", "GR"])
+ - **file_extension:**  Export file format (default: "PARQUET")
 
-| Parameter | Description |
-|---|---|
-| `analysis_id` | Analysis ID or app analysis ID |
-| `loss_details` | List of loss detail configs, each with `metricType`, `outputLevels`, and `perspectiveCodes` |
-| `file_extension` | Export file format (default: `"PARQUET"`) |
+**Returns:**
+> Tuple of (job_id, request_body)
 
-**Returns:** Tuple of `(job_id, request_body)`.
-
-**Raises:** `IRPAPIError` if analysis not found or request fails.
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If any analysis doesn't exist or request fails
 
 ---
 
-## RDMManager
+## `irp_integration.rdm`
 
-Manager for RDM (Results Data Mart) export and import operations including database management and group access.
+RDM (Risk Data Model) export operations.
 
-### `export_analyses_to_rdm`
+Handles exporting analysis results to RDM via databridge.
+
+### `class RDMManager`
+
+Manager for RDM export operations.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    analysis_manager: Optional[Any] = None,
+    edm_manager: Optional[Any] = None
+)
+```
+
+Initialize RDM manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+ - **analysis_manager:**  Optional AnalysisManager instance
+
+#### `export_analyses_to_rdm`
 
 ```python
 def export_analyses_to_rdm(
@@ -1423,22 +1890,22 @@ def export_analyses_to_rdm(
 ) -> Dict[str, Any]
 ```
 
-Export multiple analyses to RDM and poll to completion. Convenience method combining `submit_rdm_export_job` and `poll_rdm_export_job_to_completion`.
+Export multiple analyses to RDM (Risk Data Model) and poll to completion.
 
-**Args:**
+**Arguments:**
+ - **server_name:**  Database server name
+ - **rdm_name:**  Name for the RDM
+ - **analysis_names:**  List of analysis names to export
+ - **skip_missing:**  If True, skip missing analyses instead of raising an error
 
-| Parameter | Description |
-|---|---|
-| `server_name` | Database server name |
-| `rdm_name` | Name for the RDM |
-| `analysis_names` | List of analysis names to export |
-| `skip_missing` | Skip missing analyses instead of raising error |
+**Returns:**
+> Dict containing final export job status
 
-**Returns:** Final export job status dict (or skip result if all items missing).
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If export fails or analyses not found
 
----
-
-### `submit_rdm_export_job`
+#### `submit_rdm_export_job`
 
 ```python
 def submit_rdm_export_job(
@@ -1453,25 +1920,39 @@ def submit_rdm_export_job(
 ) -> Dict[str, Any]
 ```
 
-Submit an RDM export job. Validates server exists, checks RDM name uniqueness, resolves analysis/group names to URIs. Automatically detects PLT framework and sets `exportHdLossesAs` accordingly.
+Submit RDM export job.
 
-**Key Args:**
+Performs validation (server lookup, RDM existence check, analysis URI
+resolution) and submits the export job.
 
-| Parameter | Description |
-|---|---|
-| `server_name` | Database server name |
-| `rdm_name` | Name for the RDM |
-| `analysis_names` | List of analysis and group names to export |
-| `database_id` | Optional database ID (for appending to existing RDM) |
-| `analysis_edm_map` | Optional mapping of analysis names to EDM names |
-| `group_names` | Optional set of known group names |
-| `skip_missing` | Skip missing items (default: True) |
+**Arguments:**
+ - **server_name:**  Database server name
+ - **rdm_name:**  Name for the RDM
+ - **analysis_names:**  List of analysis and group names to export
+ - **database_id:**  Optional database ID (for appending to existing RDM)
+ - **analysis_edm_map:**  Optional mapping of analysis names to EDM names.
+   Used to look up analyses by name + EDM (since analysis names are only
+   unique within an EDM). If not provided, lookups use name only.
+ - **group_names:**  Optional set of known group names. Items in this set are
+   looked up as groups (by name only), all others are looked up as
+   analyses (by name + EDM if mapping provided).
+ - **skip_missing:**  If True (default), skip analyses/groups that don't exist
+   instead of raising an error. If all items are missing, returns
+   a result with job_id=None and skipped=True.
 
-**Returns:** Dict with `job_id`, `skipped`, `skipped_items`, `included_items`.
+**Returns:**
+> Dict containing:
+>     - job_id: RDM export job ID (int), or None if skipped
+>     - skipped: True if job was skipped (all items missing)
+>     - skipped_items: List of item names that were not found and skipped
+>     - included_items: List of item names that were found and included
+>     - skip_reason: Reason for skipping (if skipped=True)
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If job submission fails, or if skip_missing=False and items not found
 
-### `get_rdm_export_job`
+#### `get_rdm_export_job`
 
 ```python
 def get_rdm_export_job(self, job_id: int) -> Dict[str, Any]
@@ -1479,11 +1960,17 @@ def get_rdm_export_job(self, job_id: int) -> Dict[str, Any]
 
 Retrieve RDM export job status by job ID.
 
-**Returns:** Dict containing job status details.
+**Arguments:**
+ - **job_id:**  Job ID
 
----
+**Returns:**
+> Dict containing job status details
 
-### `poll_rdm_export_job_to_completion`
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `poll_rdm_export_job_to_completion`
 
 ```python
 def poll_rdm_export_job_to_completion(
@@ -1496,82 +1983,120 @@ def poll_rdm_export_job_to_completion(
 
 Poll RDM export job until completion or timeout.
 
-**Returns:** Final job status dict.
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> Final job status details
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
 
-### `get_rdm_database_id`
+#### `get_rdm_database_id`
 
 ```python
-def get_rdm_database_id(self, rdm_name: str, server_name: str = "databridge-1") -> int
+def get_rdm_database_id(self, rdm_name: str, server_name: str = 'databridge-1') -> int
 ```
 
-Get database ID for an existing RDM by name prefix.
+Get database ID for an existing RDM by name.
 
-**Returns:** Database ID (int).
+**Arguments:**
+ - **rdm_name:**  Name of the RDM
+ - **server_name:**  Name of the database server (default: "databridge-1")
 
----
+**Returns:**
+> Database ID
 
-### `get_rdm_database_full_name`
+**Raises:**
+ - **IRPAPIError:**  If RDM not found
+
+#### `get_rdm_database_full_name`
 
 ```python
-def get_rdm_database_full_name(self, rdm_name: str, server_name: str = "databridge-1") -> str
+def get_rdm_database_full_name(self, rdm_name: str, server_name: str = 'databridge-1') -> str
 ```
 
-Get full database name for an existing RDM by name prefix (RDMs have a random suffix appended).
+Get full database name for an existing RDM by name prefix.
 
-**Returns:** Full database name string.
+**Arguments:**
+ - **rdm_name:**  Name prefix of the RDM
+ - **server_name:**  Name of the database server (default: "databridge-1")
 
----
+**Returns:**
+> Full database name
 
-### `search_databases`
+**Raises:**
+ - **IRPAPIError:**  If RDM not found
+
+#### `search_databases`
 
 ```python
-def search_databases(self, server_name: str, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def search_databases(
+    self,
+    server_name: str,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
 ```
 
-Search databases on a server with optional filtering and pagination.
+Search databases on a server.
 
-**Args:**
+**Arguments:**
+ - **server_name:**  Name of the database server
+ - **filter:**  Optional filter string (e.g., 'databaseName="MyRDM"')
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
 
-| Parameter | Description |
-|---|---|
-| `server_name` | Name of the database server |
-| `filter` | Optional filter string (e.g., `'databaseName LIKE "MyRDM*"'`) |
-| `limit` | Maximum results per page (default: 100) |
-| `offset` | Offset for pagination (default: 0) |
+**Returns:**
+> List of database records
 
-**Returns:** List of database records.
+**Raises:**
+ - **IRPAPIError:**  If request fails
 
----
-
-### `search_databases_paginated`
+#### `search_databases_paginated`
 
 ```python
-def search_databases_paginated(self, server_name: str, filter: str = "") -> List[Dict[str, Any]]
+def search_databases_paginated(self, server_name: str, filter: str = '') -> List[Dict[str, Any]]
 ```
 
 Search all databases on a server with automatic pagination.
 
-**Returns:** Complete list of all matching database records across all pages.
+Fetches all pages of results matching the filter criteria.
 
----
+**Arguments:**
+ - **server_name:**  Name of the database server
+ - **filter:**  Optional filter string (e.g., 'databaseName="MyRDM"')
 
-### `submit_delete_rdm_job`
+**Returns:**
+> Complete list of all matching database records across all pages
+
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `submit_delete_rdm_job`
 
 ```python
-def submit_delete_rdm_job(self, rdm_name: str, server_name: str = "databridge-1") -> str
+def submit_delete_rdm_job(self, rdm_name: str, server_name: str = 'databridge-1') -> str
 ```
 
-Submit a job to delete an RDM from the databridge server.
+Submit job to delete an RDM from the databridge server.
 
-**Returns:** Job ID string.
+**Arguments:**
+ - **rdm_name:**  Name prefix of the RDM to delete
+ - **server_name:**  Name of the database server (default: "databridge-1")
 
----
+**Returns:**
+> Job ID for the delete operation
 
-### `get_databridge_job`
+**Raises:**
+ - **IRPAPIError:**  If RDM not found or delete request fails
+
+#### `get_databridge_job`
 
 ```python
 def get_databridge_job(self, job_id: str) -> str
@@ -1579,67 +2104,93 @@ def get_databridge_job(self, job_id: str) -> str
 
 Get the status of a databridge job.
 
-**Returns:** Job status string (e.g., `"Enqueued"`, `"Processing"`, `"Succeeded"`).
+**Arguments:**
+ - **job_id:**  Job ID from databridge operation (e.g., delete RDM)
 
----
+**Returns:**
+> Job status string
 
-### `poll_delete_rdm_job_to_completion`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `poll_delete_rdm_job_to_completion`
 
 ```python
-def poll_delete_rdm_job_to_completion(
-    self,
-    job_id: str,
-    interval: int = 10,
-    timeout: int = 600000
-) -> str
+def poll_delete_rdm_job_to_completion(self, job_id: str, interval: int = 10, timeout: int = 600000) -> str
 ```
 
 Poll delete RDM job until completion or timeout.
 
-**Returns:** Final job status string (`"Succeeded"`).
+Valid statuses:
+- "Enqueued": Job queued for processing
+- "Processing": Job in progress
+- "Succeeded": Job completed successfully
+- Any other status is treated as an error
 
-**Raises:** `IRPJobError` if job fails or times out.
+**Arguments:**
+ - **job_id:**  Job ID from delete operation
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
----
+**Returns:**
+> Final job status string ("Succeeded")
 
-### `add_group_access_to_rdm`
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job fails or times out
+ - **IRPAPIError:**  If polling fails
+
+#### `add_group_access_to_rdm`
 
 ```python
 def add_group_access_to_rdm(
     self,
     database_name: str,
     group_id: Optional[str] = None,
-    server_name: str = "databridge-1"
+    server_name: str = 'databridge-1'
 ) -> Dict[str, Any]
 ```
 
-Add group access to an RDM database. If `group_id` is not provided, reads from the `DATABRIDGE_GROUP_ID` environment variable.
+Add group access to an RDM database.
 
-**Args:**
+**Arguments:**
+ - **database_name:**  Name of the RDM database
+ - **group_id:**  Group ID to grant access to. If None, uses DATABRIDGE_GROUP_ID
+   environment variable.
+ - **server_name:**  Name of the database server (default: "databridge-1")
 
-| Parameter | Description |
-|---|---|
-| `database_name` | Name of the RDM database |
-| `group_id` | Group ID to grant access (falls back to env var) |
-| `server_name` | Database server name (default: `"databridge-1"`) |
+**Returns:**
+> Dict containing the API response
 
-**Returns:** API response dict (empty dict on 204 success).
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails or group_id is not configured
 
----
-
-### `search_imported_rdms`
+#### `search_imported_rdms`
 
 ```python
-def search_imported_rdms(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def search_imported_rdms(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
 ```
 
-Search imported RDMs with optional filtering and pagination.
+Search imported RDMs.
 
-**Returns:** List of imported RDM records.
+**Arguments:**
+ - **filter:**  Optional filter string (e.g., 'name="MyRDM"')
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
 
----
+**Returns:**
+> List of imported RDM records
 
-### `submit_rdm_import_job`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `submit_rdm_import_job`
 
 ```python
 def submit_rdm_import_job(
@@ -1650,25 +2201,46 @@ def submit_rdm_import_job(
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
-Submit an RDM import job with S3 file upload. Handles the complete workflow: look up EDM, create import folder, upload `.bak` file to S3, and submit the import job.
+Submit RDM import job with S3 file upload.
 
-**Args:**
+This method handles the complete RDM import workflow:
+1. Search EDMs to get the resource URI
+2. Create import folder (get S3 credentials)
+3. Upload RDM .bak file to S3
+4. Submit import job
 
-| Parameter | Description |
-|---|---|
-| `rdm_name` | Name for the RDM |
-| `edm_name` | Name of the EDM to import into |
-| `rdm_file_path` | Path to the `.bak` file to import |
+**Arguments:**
+ - **rdm_name:**  Name for the imported RDM
+ - **edm_name:**  Name of the EDM to import into
+ - **rdm_file_path:**  Path to the .bak file to import
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If file upload fails
+ - **IRPAPIError:**  If API calls fail
 
 ---
 
-## RiskDataJobManager
+## `irp_integration.risk_data_job`
 
-Manager for unified risk data job tracking via the `/platform/riskdata/v1/jobs` endpoint. Provides status retrieval, polling, and batch polling for all platform risk data jobs.
+Risk data job management operations.
 
-### `get_risk_data_job`
+Handles job status tracking, polling, and batch polling for all platform risk data jobs via the unified /platform/riskdata/v1/jobs endpoint.
+
+### `class RiskDataJobManager`
+
+Manager for risk data job status tracking and polling.
+
+#### `__init__`
+
+```python
+def __init__(self, client: irp_integration.client.Client)
+```
+
+#### `get_risk_data_job`
 
 ```python
 def get_risk_data_job(self, job_id: int) -> Dict[str, Any]
@@ -1676,23 +2248,41 @@ def get_risk_data_job(self, job_id: int) -> Dict[str, Any]
 
 Retrieve job status by job ID.
 
-**Returns:** Dict containing job status details.
+**Arguments:**
+ - **job_id:**  Job ID
 
----
+**Returns:**
+> Dict containing job status details
 
-### `search_risk_data_jobs`
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_risk_data_jobs`
 
 ```python
-def search_risk_data_jobs(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]
+def search_risk_data_jobs(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
 ```
 
-Search risk data jobs with optional filtering and pagination.
+Search risk data jobs with optional filtering.
 
-**Returns:** List of risk data job dicts.
+**Arguments:**
+ - **filter:**  Optional filter string (default: "")
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
 
----
+**Returns:**
+> List of risk data job dicts
 
-### `poll_risk_data_job_to_completion`
+**Raises:**
+ - **IRPAPIError:**  If search fails
+
+#### `poll_risk_data_job_to_completion`
 
 ```python
 def poll_risk_data_job_to_completion(
@@ -1703,15 +2293,26 @@ def poll_risk_data_job_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll a risk data job until completion or timeout.
+Poll risk data job until completion or timeout.
 
-**Returns:** Final job status dict.
+Returns on any terminal status (FINISHED, FAILED, or CANCELLED) — the
+caller must inspect the returned ``status`` (see the workflow contract
+in ``client.py``).
 
-**Raises:** `IRPJobError` on timeout.
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds
+ - **timeout:**  Maximum timeout in seconds
 
----
+**Returns:**
+> Dict containing the final job status details
 
-### `poll_risk_data_job_batch_to_completion`
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If the job times out
+ - **IRPAPIError:**  If a status request fails
+
+#### `poll_risk_data_job_batch_to_completion`
 
 ```python
 def poll_risk_data_job_batch_to_completion(
@@ -1722,19 +2323,53 @@ def poll_risk_data_job_batch_to_completion(
 ) -> List[Dict[str, Any]]
 ```
 
-Poll multiple risk data jobs until all complete or timeout. Handles pagination.
+Poll multiple risk data jobs until all complete or timeout.
 
-**Returns:** List of final job status dicts.
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> List of final job status details for all jobs
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If jobs time out
+ - **IRPAPIError:**  If polling fails
 
 ---
 
-## ImportJobManager
+## `irp_integration.import_job`
 
-Centralized interface for submitting, tracking, and polling platform import jobs. Routes to the appropriate manager (EDM, RDM, or MRI) based on import type.
+Import job management operations.
 
-### `submit_job`
+Provides a centralized interface for submitting, tracking, and polling platform import jobs. Uses the /platform/import/v1/jobs endpoint.
+
+### `class ImportJobManager`
+
+Manager for platform import job operations (EDM, RDM, MRI).
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    client: irp_integration.client.Client,
+    edm_manager: Optional[Any] = None,
+    rdm_manager: Optional[Any] = None,
+    mri_manager: Optional[Any] = None
+)
+```
+
+Initialize ImportJobManager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+ - **edm_manager:**  Optional EDMManager instance for EDM import routing
+ - **rdm_manager:**  Optional RDMManager instance for RDM import routing
+
+#### `submit_job`
 
 ```python
 def submit_job(self, import_type: str, **kwargs) -> Tuple[int, Dict[str, Any]]
@@ -1742,29 +2377,36 @@ def submit_job(self, import_type: str, **kwargs) -> Tuple[int, Dict[str, Any]]
 
 Submit an import job, routing to the appropriate manager based on type.
 
-**Args:**
+**Arguments:**
+ - **import_type:**  Type of import - "EDM", "RDM", or "MRI"
+ - ****kwargs:**  Arguments passed to the underlying submit method.
 
-| Parameter | Description |
-|---|---|
-| `import_type` | Type of import: `"EDM"`, `"RDM"`, or `"MRI"` |
-| `**kwargs` | Arguments passed to the underlying submit method (see below) |
+   For EDM (routed to EDMManager.submit_edm_import_job):
+       edm_name (str): Name for the EDM
+       edm_file_path (str): Path to the .bak file
+       server_name (str): Database server name (default: "sql-instance-1")
 
-**For `EDM`** (routes to `EDMManager.submit_edm_import_job`):
-- `edm_name`, `edm_file_path`, `server_name`
+   For RDM (routed to RDMManager.submit_rdm_import_job):
+       rdm_name (str): Name for the RDM
+       edm_name (str): Name of the target EDM
+       rdm_file_path (str): Path to the .bak file
 
-**For `RDM`** (routes to `RDMManager.submit_rdm_import_job`):
-- `rdm_name`, `edm_name`, `rdm_file_path`
+   For MRI (routed to MRIImportManager.submit_mri_import_job):
+       edm_name (str): Target EDM name
+       portfolio_name (str): Target portfolio name
+       accounts_file_path (str): Path to accounts CSV file
+       locations_file_path (str): Path to locations CSV file
+       mapping_file_path (str, optional): Path to .mff mapping file
+       delimiter (str): File delimiter (default: "TAB")
 
-**For `MRI`** (routes to `MRIImportManager.submit_mri_import_job`):
-- `edm_name`, `portfolio_name`, `accounts_file_path`, `locations_file_path`, `mapping_file_path`, `delimiter`
+**Returns:**
+> Tuple of (job_id, request_body)
 
-**Returns:** Tuple of `(job_id, request_body)`.
+**Raises:**
+ - **IRPValidationError:**  If import_type is invalid or kwargs are wrong
+ - **IRPAPIError:**  If submission fails
 
-**Raises:** `IRPValidationError` if `import_type` is invalid.
-
----
-
-### `get_import_job`
+#### `get_import_job`
 
 ```python
 def get_import_job(self, job_id: int) -> Dict[str, Any]
@@ -1772,11 +2414,17 @@ def get_import_job(self, job_id: int) -> Dict[str, Any]
 
 Get import job status by job ID.
 
-**Returns:** Dict containing job status details.
+**Arguments:**
+ - **job_id:**  Import job ID
 
----
+**Returns:**
+> Dict containing job status details
 
-### `poll_import_job_to_completion`
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `poll_import_job_to_completion`
 
 ```python
 def poll_import_job_to_completion(
@@ -1787,19 +2435,45 @@ def poll_import_job_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll an import job until completion or timeout.
+Poll import job until completion or timeout.
 
-**Returns:** Final job status dict.
+**Arguments:**
+ - **job_id:**  Import job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-**Raises:** `IRPJobError` on timeout.
+**Returns:**
+> Final job status details
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
 
 ---
 
-## ExportJobManager
+## `irp_integration.export_job`
 
-Manager for platform export job operations including status retrieval, polling, and result download.
+Export job management operations.
 
-### `get_export_job`
+Provides an interface for tracking and polling platform export jobs. Uses the /platform/export/v1/jobs endpoint.
+
+### `class ExportJobManager`
+
+Manager for platform export job operations.
+
+#### `__init__`
+
+```python
+def __init__(self, client: irp_integration.client.Client)
+```
+
+Initialize ExportJobManager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+
+#### `get_export_job`
 
 ```python
 def get_export_job(self, job_id: int) -> Dict[str, Any]
@@ -1807,17 +2481,17 @@ def get_export_job(self, job_id: int) -> Dict[str, Any]
 
 Get export job status by job ID.
 
-**Args:**
+**Arguments:**
+ - **job_id:**  Export job ID
 
-| Parameter | Description |
-|---|---|
-| `job_id` | Export job ID |
+**Returns:**
+> Dict containing job status details
 
-**Returns:** Dict containing job status details.
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `poll_export_job_to_completion`
+#### `poll_export_job_to_completion`
 
 ```python
 def poll_export_job_to_completion(
@@ -1828,62 +2502,72 @@ def poll_export_job_to_completion(
 ) -> Dict[str, Any]
 ```
 
-Poll an export job until completion or timeout.
+Poll export job until completion or timeout.
 
-**Args:**
+**Arguments:**
+ - **job_id:**  Export job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
 
-| Parameter | Description |
-|---|---|
-| `job_id` | Export job ID |
-| `interval` | Polling interval in seconds (default: 10) |
-| `timeout` | Maximum timeout in seconds (default: 600000) |
+**Returns:**
+> Final job status details
 
-**Returns:** Final job status dict.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job times out
+ - **IRPAPIError:**  If polling fails
 
-**Raises:** `IRPJobError` on timeout.
-
----
-
-### `download_export_results`
+#### `download_export_results`
 
 ```python
 def download_export_results(self, job_id: int, output_dir: str) -> str
 ```
 
-Download exported analysis results for a completed export job. Extracts the `downloadUrl` from the `DOWNLOAD_RESULTS` task and streams the zip file to the output directory. Creates the output directory if it doesn't exist.
+Download exported analysis results for a completed export job.
 
-**Args:**
+Fetches the job, extracts the downloadUrl from the DOWNLOAD_RESULTS task,
+and streams the zip file to the output directory.
 
-| Parameter | Description |
-|---|---|
-| `job_id` | Export job ID (must be FINISHED) |
-| `output_dir` | Directory to save the downloaded file |
+**Arguments:**
+ - **job_id:**  Export job ID (must be FINISHED)
+ - **output_dir:**  Directory to save the downloaded file
 
-**Returns:** Path to the downloaded file.
+**Returns:**
+> Path to the downloaded file
 
-**Raises:** `IRPJobError` if job is not finished. `IRPAPIError` if download URL not found or download fails.
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If job is not finished
+ - **IRPAPIError:**  If download URL not found or download fails
 
 ---
 
-## S3Manager
+## `irp_integration.s3`
 
-Manager for S3 upload and CloudFront/presigned URL download operations. Uses temporary credentials provided by Moody's Risk Modeler API.
+S3 upload and download operations for IRP Integration.
 
-### Constructor
+Handles file uploads to AWS S3 using temporary credentials provided by Moody's Risk Modeler API, and file downloads from CloudFront/presigned URLs.
+
+### `class S3Manager`
+
+Manager for S3 upload and CloudFront download operations.
+
+#### `__init__`
 
 ```python
-S3Manager(transfer_config: Optional[TransferConfig] = None)
+def __init__(
+    self,
+    transfer_config: Optional[boto3.s3.transfer.TransferConfig] = None
+)
 ```
 
-**Args:**
+Initialize S3 Manager.
 
-| Parameter | Description |
-|---|---|
-| `transfer_config` | Optional boto3 `TransferConfig` for multipart uploads. Defaults to 8MB threshold/chunks, 10 concurrent threads. |
+**Arguments:**
+ - **transfer_config:**  Optional boto3 TransferConfig for multipart uploads.
+   If not provided, uses default optimized settings.
 
----
-
-### `upload_file`
+#### `upload_file`
 
 ```python
 def upload_file(
@@ -1894,42 +2578,65 @@ def upload_file(
 ) -> None
 ```
 
-Upload a file to S3 using credentials from the API create-import-folder response. Parses the upload URL and base64-encoded credentials automatically.
+Upload file to S3 using credentials from API response.
 
-**Args:**
+This method handles the S3 upload for EDM/RDM import workflows.
+It extracts the upload URL and credentials from the API response
+and performs a multipart upload.
 
-| Parameter | Description |
-|---|---|
-| `file_path` | Path to the file to upload |
-| `upload_details` | Upload details dict containing `uploadUrl` and `presignParams` |
-| `content_type` | Optional content type override (inferred from extension if omitted) |
+**Arguments:**
+ - **file_path:**  Path to the file to upload
+ - **upload_details:**  Upload details dict from create import folder response,
+   containing 'uploadUrl' and 'presignParams' (with base64-encoded
+   credentials)
+ - **content_type:**  Optional content type override. If not provided,
+   inferred from file extension.
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid or required fields missing
+ - **IRPFileError:**  If file upload fails
 
-### `upload_fileobj`
+**Example:**
+> ```python
+> # From create import folder response:
+> # response['uploadDetails']['exposureFile']
+> upload_details = {
+>     "fileUri": "platform/import/v1/folders/39073/files/105108",
+>     "presignParams": {
+>         "accessKeyId": "<base64>",
+>         "secretAccessKey": "<base64>",
+>         "sessionToken": "<base64>",
+>         "path": "<base64>",
+>         "region": "<base64>"
+>     },
+>     "uploadUrl": "https://bucket.s3.amazonaws.com/path/to/file.bak"
+> }
+> s3_manager.upload_file("/path/to/file.bak", upload_details)
+> ```
+
+#### `upload_fileobj`
 
 ```python
 def upload_fileobj(
     self,
-    fileobj: BinaryIO,
+    fileobj: <class 'BinaryIO'>,
     upload_details: Dict[str, Any],
     content_type: str
 ) -> None
 ```
 
-Upload a file-like object (e.g., `BytesIO`) to S3 using credentials from the API response.
+Upload file-like object to S3 using credentials from API response.
 
-**Args:**
+**Arguments:**
+ - **fileobj:**  File-like object (e.g., BytesIO, open file in 'rb' mode)
+ - **upload_details:**  Upload details dict from create import folder response
+ - **content_type:**  Content type for the upload (required for streams)
 
-| Parameter | Description |
-|---|---|
-| `fileobj` | File-like object in binary read mode |
-| `upload_details` | Upload details dict containing `uploadUrl` and `presignParams` |
-| `content_type` | Content type for the upload (required) |
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid or required fields missing
+ - **IRPFileError:**  If file upload fails
 
----
-
-### `upload_file_from_credentials`
+#### `upload_file_from_credentials`
 
 ```python
 def upload_file_from_credentials(
@@ -1942,21 +2649,27 @@ def upload_file_from_credentials(
 ) -> None
 ```
 
-Upload a file to S3 using pre-decoded credentials. Lower-level method for cases where credentials are already decoded.
+Upload file to S3 using pre-decoded credentials.
 
-**Args:**
+Lower-level method for cases where credentials are already decoded
+(e.g., MRI import workflow).
 
-| Parameter | Description |
-|---|---|
-| `file_path` | Path to the file to upload |
-| `credentials` | Dict with `aws_access_key_id`, `aws_secret_access_key`, `aws_session_token`, `s3_region` |
-| `bucket` | S3 bucket name |
-| `key` | S3 object key |
-| `content_type` | Optional content type override |
+**Arguments:**
+ - **file_path:**  Path to the file to upload
+ - **credentials:**  Dict with decoded AWS credentials:
+   - aws_access_key_id: str
+   - aws_secret_access_key: str
+   - aws_session_token: str
+   - s3_region: str
+ - **bucket:**  S3 bucket name
+ - **key:**  S3 object key (path within bucket)
+ - **content_type:**  Optional content type override
 
----
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If file upload fails
 
-### `download_from_url`
+#### `download_from_url`
 
 ```python
 def download_from_url(
@@ -1968,49 +2681,66 @@ def download_from_url(
 ) -> None
 ```
 
-Download a file from a CloudFront or presigned URL to a local path.
+Download file from CloudFront or presigned URL to local path.
 
-**Args:**
+**Arguments:**
+ - **url:**  Full URL including any signed parameters
+ - **destination_path:**  Local path to save the file
+ - **chunk_size:**  Download chunk size in bytes (default: 8192)
+ - **timeout:**  Request timeout in seconds (default: 300)
 
-| Parameter | Description |
-|---|---|
-| `url` | Full URL including signed parameters |
-| `destination_path` | Local path to save the file |
-| `chunk_size` | Download chunk size in bytes (default: 8192) |
-| `timeout` | Request timeout in seconds (default: 300) |
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If download fails or file cannot be written
 
----
-
-### `download_from_url_to_fileobj`
+#### `download_from_url_to_fileobj`
 
 ```python
 def download_from_url_to_fileobj(
     self,
     url: str,
-    fileobj: BinaryIO,
+    fileobj: <class 'BinaryIO'>,
     chunk_size: int = 8192,
     timeout: int = 300
 ) -> None
 ```
 
-Download a file from a CloudFront or presigned URL to a file-like object.
+Download file from CloudFront or presigned URL to file-like object.
 
-**Args:**
+**Arguments:**
+ - **url:**  Full URL including any signed parameters
+ - **fileobj:**  File-like object to write to (must be opened in binary write mode)
+ - **chunk_size:**  Download chunk size in bytes (default: 8192)
+ - **timeout:**  Request timeout in seconds (default: 300)
 
-| Parameter | Description |
-|---|---|
-| `url` | Full URL including signed parameters |
-| `fileobj` | File-like object in binary write mode |
-| `chunk_size` | Download chunk size in bytes (default: 8192) |
-| `timeout` | Request timeout in seconds (default: 300) |
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPFileError:**  If download fails or write fails
 
 ---
 
-## ReferenceDataManager
+## `irp_integration.reference_data`
 
-Manager for reference data operations including model profiles, output profiles, event rate schemes, currencies, tags, simulation sets, PET metadata, and software model version mappings.
+Reference data management operations.
 
-### `get_model_profiles`
+Handles retrieval and creation of reference data including model profiles, output profiles, event rate schemes, currencies, and tags.
+
+### `class ReferenceDataManager`
+
+Manager for reference data operations.
+
+#### `__init__`
+
+```python
+def __init__(self, client: irp_integration.client.Client)
+```
+
+Initialize reference data manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+
+#### `get_model_profiles`
 
 ```python
 def get_model_profiles(self) -> Dict[str, Any]
@@ -2018,11 +2748,13 @@ def get_model_profiles(self) -> Dict[str, Any]
 
 Retrieve all model profiles.
 
-**Returns:** Dict containing model profile list.
+**Returns:**
+> Dict containing model profile list
 
----
+**Raises:**
+ - **IRPAPIError:**  If request fails
 
-### `get_model_profile_by_name`
+#### `get_model_profile_by_name`
 
 ```python
 def get_model_profile_by_name(self, profile_name: str) -> Dict[str, Any]
@@ -2030,17 +2762,17 @@ def get_model_profile_by_name(self, profile_name: str) -> Dict[str, Any]
 
 Retrieve model profile by name.
 
-**Args:**
+**Arguments:**
+ - **profile_name:**  Model profile name
 
-| Parameter | Description |
-|---|---|
-| `profile_name` | Model profile name (e.g., `"DLM CBHU v23"`) |
+**Returns:**
+> Dict containing model profile details
 
-**Returns:** Dict with `count` and `items` array.
+**Raises:**
+ - **IRPValidationError:**  If profile_name is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_output_profiles`
+#### `get_output_profiles`
 
 ```python
 def get_output_profiles(self) -> List[Dict[str, Any]]
@@ -2048,11 +2780,13 @@ def get_output_profiles(self) -> List[Dict[str, Any]]
 
 Retrieve all output profiles.
 
-**Returns:** List of output profile dicts.
+**Returns:**
+> Dict containing output profile list
 
----
+**Raises:**
+ - **IRPAPIError:**  If request fails
 
-### `get_output_profile_by_name`
+#### `get_output_profile_by_name`
 
 ```python
 def get_output_profile_by_name(self, profile_name: str) -> List[Dict[str, Any]]
@@ -2060,17 +2794,17 @@ def get_output_profile_by_name(self, profile_name: str) -> List[Dict[str, Any]]
 
 Retrieve output profile by name.
 
-**Args:**
+**Arguments:**
+ - **profile_name:**  Output profile name
 
-| Parameter | Description |
-|---|---|
-| `profile_name` | Output profile name |
+**Returns:**
+> Dict containing output profile details
 
-**Returns:** List of matching output profile dicts.
+**Raises:**
+ - **IRPValidationError:**  If profile_name is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_event_rate_schemes`
+#### `get_event_rate_schemes`
 
 ```python
 def get_event_rate_schemes(self) -> Dict[str, Any]
@@ -2078,60 +2812,76 @@ def get_event_rate_schemes(self) -> Dict[str, Any]
 
 Retrieve all active event rate schemes.
 
-**Returns:** Dict containing event rate scheme list.
+**Returns:**
+> Dict containing event rate scheme list
 
----
+**Raises:**
+ - **IRPAPIError:**  If request fails
 
-### `get_event_rate_scheme_by_name`
+#### `get_event_rate_scheme_by_name`
 
 ```python
 def get_event_rate_scheme_by_name(
     self,
     scheme_name: str,
-    peril_code: str = None,
-    model_region_code: str = None
+    peril_code: Optional[str] = None,
+    model_region_code: Optional[str] = None
 ) -> Dict[str, Any]
 ```
 
-Retrieve event rate scheme by name with optional peril and region filtering. Use `peril_code` and `model_region_code` to disambiguate when the same scheme name exists for multiple peril/region combinations.
+Retrieve event rate scheme by name with optional peril and region filtering.
 
-**Args:**
+When the same event rate scheme name exists for multiple peril/region combinations,
+use the peril_code and model_region_code parameters to filter to the correct one.
+These values can be obtained from the corresponding model profile.
 
-| Parameter | Description |
-|---|---|
-| `scheme_name` | Event rate scheme name |
-| `peril_code` | Optional peril code (e.g., `"CS"`, `"WS"`) |
-| `model_region_code` | Optional model region code (e.g., `"NACS"`, `"NAWS"`) |
+**Arguments:**
+ - **scheme_name:**  Event rate scheme name
+ - **peril_code:**  Optional peril code (e.g., "CS", "WS") to filter results
+ - **model_region_code:**  Optional model region code (e.g., "NACS", "NAWS") to filter results
 
-**Returns:** Dict with `count` and `items` array.
+**Returns:**
+> Dict containing event rate scheme details
 
----
+**Raises:**
+ - **IRPValidationError:**  If scheme_name is invalid
+ - **IRPAPIError:**  If request fails
 
-### `search_currencies`
+#### `search_currencies`
 
 ```python
-def search_currencies(self, where_clause: str = "") -> Dict[str, Any]
+def search_currencies(self, where_clause: str = '') -> Dict[str, Any]
 ```
 
 Search currencies with optional filtering.
 
-**Returns:** Dict containing currency list.
+**Arguments:**
+ - **where_clause:**  Optional filter clause
 
----
+**Returns:**
+> List containing currencies
 
-### `search_currency_scheme_vintages`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `search_currency_scheme_vintages`
 
 ```python
-def search_currency_scheme_vintages(self, where_clause: str = "") -> Dict[str, Any]
+def search_currency_scheme_vintages(self, where_clause: str = '') -> Dict[str, Any]
 ```
 
 Search currency scheme vintages with optional filtering.
 
-**Returns:** Dict containing currency scheme vintage list.
+**Arguments:**
+ - **where_clause:**  Optional filter clause
 
----
+**Returns:**
+> Dict containing currency scheme vintages
 
-### `get_latest_currency_scheme_vintage`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `get_latest_currency_scheme_vintage`
 
 ```python
 def get_latest_currency_scheme_vintage(self) -> Dict[str, Any]
@@ -2139,23 +2889,27 @@ def get_latest_currency_scheme_vintage(self) -> Dict[str, Any]
 
 Get the latest RMS currency scheme vintage by effective date.
 
-**Returns:** Dict containing the currency scheme vintage with the most recent `effectiveDate`.
+**Returns:**
+> Dict containing the currency scheme vintage with the most recent effectiveDate
 
----
+**Raises:**
+ - **IRPAPIError:**  If request fails or no vintages found
 
-### `get_analysis_currency`
+#### `get_analysis_currency`
 
 ```python
 def get_analysis_currency(self) -> Dict[str, str]
 ```
 
-Get currency dict for analysis requests. Attempts to retrieve the latest RMS currency scheme vintage from the API; falls back to default values on failure.
+Get currency dict for analysis requests.
 
-**Returns:** Currency dict with `asOfDate`, `code`, `scheme`, and `vintage`.
+Attempts to get the latest RMS currency scheme vintage from the API.
+Falls back to default values if the API call fails.
 
----
+**Returns:**
+> Currency dict with asOfDate, code, scheme, and vintage
 
-### `get_currency_by_name`
+#### `get_currency_by_name`
 
 ```python
 def get_currency_by_name(self, currency_name: str) -> Dict[str, Any]
@@ -2163,17 +2917,17 @@ def get_currency_by_name(self, currency_name: str) -> Dict[str, Any]
 
 Retrieve currency by name.
 
-**Args:**
+**Arguments:**
+ - **currency_name:**  Currency name
 
-| Parameter | Description |
-|---|---|
-| `currency_name` | Currency name (e.g., `"US Dollar"`) |
+**Returns:**
+> Dict containing currency details
 
-**Returns:** Dict containing currency details (`currencyId`, `currencyCode`, `currencyName`).
+**Raises:**
+ - **IRPValidationError:**  If currency_name is invalid
+ - **IRPAPIError:**  If request fails
 
----
-
-### `get_tag_by_name`
+#### `get_tag_by_name`
 
 ```python
 def get_tag_by_name(self, tag_name: str) -> List[Dict[str, Any]]
@@ -2181,117 +2935,180 @@ def get_tag_by_name(self, tag_name: str) -> List[Dict[str, Any]]
 
 Retrieve tag by name.
 
-**Returns:** List of matching tag dicts.
+**Arguments:**
+ - **tag_name:**  Tag name
 
----
+**Returns:**
+> List of dicts containing tag details
 
-### `create_tag`
+**Raises:**
+ - **IRPValidationError:**  If tag_name is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `create_tag`
 
 ```python
 def create_tag(self, tag_name: str) -> Dict[str, str]
 ```
 
-Create a new tag.
+Create new tag.
 
-**Returns:** Dict with `id` (the created tag ID).
+**Arguments:**
+ - **tag_name:**  Tag name
 
----
+**Returns:**
+> Dict with tag ID
 
-### `get_tag_ids_from_tag_names`
+**Raises:**
+ - **IRPValidationError:**  If tag_name is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `get_tag_ids_from_tag_names`
 
 ```python
 def get_tag_ids_from_tag_names(self, tag_names: List[str]) -> List[int]
 ```
 
-Get or create tags by names and return their IDs. Creates tags that do not already exist.
+Get or create tags by names and return their IDs.
 
-**Returns:** List of tag IDs.
+This method will create tags if they don't already exist.
 
----
+**Arguments:**
+ - **tag_names:**  List of tag names
 
-### `get_all_simulation_sets`
+**Returns:**
+> List of tag IDs
+
+**Raises:**
+ - **IRPValidationError:**  If tag_names is empty
+ - **IRPAPIError:**  If request fails
+
+#### `get_all_simulation_sets`
 
 ```python
 def get_all_simulation_sets(self) -> List[Dict[str, Any]]
 ```
 
-Get all active simulation sets. Simulation sets map event rate scheme IDs to simulation set IDs for ELT-based analyses.
+Get all active simulation sets.
 
-**Returns:** List of simulation set dicts.
+Simulation sets map event rate scheme IDs to simulation set IDs
+for ELT-based analyses. This fetches all active sets which can be
+filtered locally by event rate scheme ID.
 
----
+**Returns:**
+> List of simulation set dicts
 
-### `get_simulation_set_by_event_rate_scheme_id`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `get_simulation_set_by_event_rate_scheme_id`
 
 ```python
 def get_simulation_set_by_event_rate_scheme_id(self, event_rate_scheme_id: int) -> Dict[str, Any]
 ```
 
-Get simulation set by event rate scheme ID. For ELT analyses, the `simulationSetId` in grouping requests comes from this lookup.
+Get simulation set by event rate scheme ID.
 
-**Returns:** Simulation set dict with `id` being the `simulationSetId`.
+For ELT analyses, the simulationSetId in grouping requests comes from
+this lookup using the eventRateSchemeId from the analysis regions.
 
----
+**Arguments:**
+ - **event_rate_scheme_id:**  Event rate scheme ID from analysis regions
 
-### `get_simulation_set_by_region_peril_and_engine`
+**Returns:**
+> Dict containing simulation set details with 'id' being the simulationSetId
+
+**Raises:**
+ - **IRPAPIError:**  If request fails or simulation set not found
+
+#### `get_simulation_set_by_region_peril_and_engine`
 
 ```python
 def get_simulation_set_by_region_peril_and_engine(
-    self, region_code: str, peril_code: str, engine_version: str
+    self,
+    region_code: str,
+    peril_code: str,
+    engine_version: str
 ) -> Dict[str, Any]
 ```
 
-Fallback method to get simulation set by region code, peril code, and engine version. When multiple sets match, returns the one with the highest ID (most recent).
+Get simulation set by regionCode, perilCode, and engineVersion.
 
-**Args:**
+This is a fallback method used when eventRateSchemeId is not available.
+The lookup uses regionCode + perilCode to build the broader modelRegionCode
+(e.g., "NA" + "WS" = "NAWS") since SimulationSet entries use broader regional
+codes, not sub-region-specific codes like "HTWS".
 
-| Parameter | Description |
-|---|---|
-| `region_code` | Region code (e.g., `"NA"`, `"US"`) |
-| `peril_code` | Peril code (e.g., `"WS"`, `"EQ"`) |
-| `engine_version` | Engine version (e.g., `"RL23"`, `"HDv2.0"`) |
+Note: When multiple simulation sets match, returns the one with highest id
+(most recent). For precise matching, use get_simulation_set_by_event_rate_scheme_id
+with the eventRateSchemeId from the analysis additionalProperties.
 
-**Returns:** Simulation set dict.
+**Arguments:**
+ - **region_code:**  Region code (e.g., "NA", "US", "CB")
+ - **peril_code:**  Peril code (e.g., "WS", "EQ", "FL")
+ - **engine_version:**  Engine version (e.g., "RL23", "HDv2.0")
 
----
+**Returns:**
+> Dict containing simulation set details with 'id' being the simulationSetId
 
-### `get_all_pet_metadata`
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If request fails or simulation set not found
+
+#### `get_all_pet_metadata`
 
 ```python
 def get_all_pet_metadata(self) -> List[Dict[str, Any]]
 ```
 
-Get all PET (Probabilistic Event Table) metadata. PET metadata maps PET IDs to simulation set IDs for PLT/HD-based analyses.
+Get all PET (Probabilistic Event Table) metadata.
 
-**Returns:** List of PET metadata dicts.
+PET metadata maps PET IDs to simulation set IDs for PLT/HD-based analyses.
 
----
+**Returns:**
+> List of PET metadata dicts
 
-### `get_pet_metadata_by_id`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `get_pet_metadata_by_id`
 
 ```python
 def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]
 ```
 
-Get PET metadata by PET ID. For PLT/HD analyses, `simulationSetId` = `petId`.
+Get PET metadata by PET ID.
 
-**Returns:** PET metadata dict.
+For PLT/HD analyses, the simulationSetId in grouping requests is the
+PET ID itself (the 'id' field from PET metadata).
 
----
+**Arguments:**
+ - **pet_id:**  PET ID from analysis regions
 
-### `get_all_software_model_version_map`
+**Returns:**
+> Dict containing PET metadata details
+
+**Raises:**
+ - **IRPValidationError:**  If pet_id is invalid
+ - **IRPAPIError:**  If request fails or PET not found
+
+#### `get_all_software_model_version_map`
 
 ```python
 def get_all_software_model_version_map(self) -> List[Dict[str, Any]]
 ```
 
-Get all active software model version mappings. Maps engine versions to model versions for grouping requests.
+Get all active software model version mappings.
 
-**Returns:** List of version map dicts.
+This maps engine versions to model versions for grouping requests.
 
----
+**Returns:**
+> List of version map dicts
 
-### `get_model_version_by_engine_version`
+**Raises:**
+ - **IRPAPIError:**  If request fails
+
+#### `get_model_version_by_engine_version`
 
 ```python
 def get_model_version_by_engine_version(self, engine_version: str) -> str
@@ -2299,139 +3116,189 @@ def get_model_version_by_engine_version(self, engine_version: str) -> str
 
 Get model version for a given engine version.
 
-**Args:**
+Note: This method looks for any entry matching the softwareVersionCode.
+For more precise matching, use get_model_version_by_engine_and_region.
 
-| Parameter | Description |
-|---|---|
-| `engine_version` | Engine version string (e.g., `"HDv2.0"`, `"RL23"`) |
+**Arguments:**
+ - **engine_version:**  Engine version string (e.g., "HDv2.0", "RL23")
 
-**Returns:** Model version string (e.g., `"2.0"`, `"23.0"`).
+**Returns:**
+> Model version string (e.g., "2.0", "23.0")
 
----
+**Raises:**
+ - **IRPValidationError:**  If engine_version is invalid
+ - **IRPAPIError:**  If request fails or mapping not found
 
-### `get_model_version_by_engine_region_peril`
-
-```python
-def get_model_version_by_engine_region_peril(
-    self, engine_version: str, region_code: str, peril_code: str
-) -> str
-```
-
-Get model version with precise matching using engine version, region code, and peril code.
-
-**Args:**
-
-| Parameter | Description |
-|---|---|
-| `engine_version` | Engine version string |
-| `region_code` | Region code (e.g., `"NA"`, `"US"`) |
-| `peril_code` | Peril code (e.g., `"WS"`, `"EQ"`) |
-
-**Returns:** Model version string.
-
----
-
-## DataBridgeManager
-
-Manager for SQL Server (Data Bridge) operations. Provides direct SQL connectivity via pyodbc with parameterized query execution.
-
-Unlike other managers, DataBridgeManager does not depend on the HTTP Client. It connects directly to SQL Server and can be used standalone or via `client.databridge`.
-
-**Requires:** `pip install irp-integration[databridge]` and [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server).
-
-### Constructor
+#### `get_model_version_by_engine_region_peril`
 
 ```python
-DataBridgeManager(default_connection: str = 'TEST')
+def get_model_version_by_engine_region_peril(self, engine_version: str, region_code: str, peril_code: str) -> str
 ```
 
-**Args:**
+Get model version for a given engine version, region code, and peril code.
 
-| Parameter | Description |
-|---|---|
-| `default_connection` | Default connection name used when no connection is specified in method calls |
+This provides a precise lookup using the broader modelRegionCode (e.g., "NAWS")
+built from regionCode + perilCode, since SoftwareModelVersionMap uses broader
+codes, not sub-region-specific codes like "HTWS".
 
-**Environment variables (per connection):**
+**Arguments:**
+ - **engine_version:**  Engine version string (e.g., "HDv2.0", "RL23")
+ - **region_code:**  Region code (e.g., "NA", "US", "CB")
+ - **peril_code:**  Peril code (e.g., "WS", "EQ", "FL")
 
-| Variable | Required | Description |
-|---|---|---|
-| `MSSQL_{NAME}_SERVER` | Yes | Server hostname or IP |
-| `MSSQL_{NAME}_USER` | Yes | SQL Server username |
-| `MSSQL_{NAME}_PASSWORD` | Yes | SQL Server password |
-| `MSSQL_{NAME}_PORT` | No | Port (default: 1433) |
+**Returns:**
+> Model version string (e.g., "2.0", "11.0")
 
-**Global environment variables:**
-
-| Variable | Default | Description |
-|---|---|---|
-| `MSSQL_DRIVER` | `ODBC Driver 18 for SQL Server` | ODBC driver name |
-| `MSSQL_TRUST_CERT` | `yes` | Trust server certificate |
-| `MSSQL_TIMEOUT` | `30` | Connection timeout in seconds |
+**Raises:**
+ - **IRPValidationError:**  If inputs are invalid
+ - **IRPAPIError:**  If request fails or mapping not found
 
 ---
 
-### `get_connection_config`
+## `irp_integration.databridge`
+
+Data Bridge (SQL Server) operations.
+
+Provides SQL Server connectivity via pyodbc with named connections, parameterized query execution using {{ param }} template syntax, and file-based SQL execution. Designed for interacting with Moody's Data Bridge databases.
+
+**Connection Management:**
+
+Supports multiple named MSSQL connections configured via environment variables. Each connection requires:
+
+MSSQL_{CONNECTION_NAME}_SERVER   - Server hostname or IP (required) MSSQL_{CONNECTION_NAME}_USER     - SQL auth username (required) MSSQL_{CONNECTION_NAME}_PASSWORD - SQL auth password (required) MSSQL_{CONNECTION_NAME}_PORT     - Port (optional, defaults to 1433)
+
+Global settings: MSSQL_DRIVER     - ODBC driver name (default: 'ODBC Driver 18 for SQL Server') MSSQL_TRUST_CERT - Trust server certificate (default: 'yes') MSSQL_TIMEOUT    - Connection timeout in seconds (default: '30')
+
+**Parameter Substitution:**
+
+SQL queries support named parameters using {{ param_name }} syntax. Parameters are context-aware: identifiers (inside brackets or as part of table names) are substituted raw, while values are escaped with SQL injection protection.
+
+### `class ExpressionTemplate`
+
+*Bases:* `string.Template`
+
+Custom Template class for SQL parameter substitution.
+
+Uses {{ PARAM }} syntax with space padding to avoid conflicts with SQL syntax. Example: SELECT * FROM table WHERE id = {{ ID }}
+
+### `class DataBridgeManager`
+
+Manager for SQL Server (Data Bridge) operations.
+
+Unlike other managers, DataBridgeManager does not depend on the HTTP Client. It connects directly to SQL Server via pyodbc. It can be used standalone or attached to IRPClient as client.databridge.
+
+**Args:**
+
+default_connection: Default connection name used when no connection
+
+is specified in method calls. Defaults to 'DATABRIDGE'.
+
+**Environment Variables (per connection):**
+
+MSSQL_{CONNECTION_NAME}_SERVER   - Server hostname or IP (required) MSSQL_{CONNECTION_NAME}_USER     - SQL auth username (required) MSSQL_{CONNECTION_NAME}_PASSWORD - SQL auth password (required) MSSQL_{CONNECTION_NAME}_PORT     - Port (optional, defaults to 1433)
+
+**Global Environment Variables:**
+
+MSSQL_DRIVER     - ODBC driver name (default: 'ODBC Driver 18 for SQL Server') MSSQL_TRUST_CERT - Trust server certificate (default: 'yes') MSSQL_TIMEOUT    - Connection timeout in seconds (default: '30')
+
+**Example:**
+
+# Via IRPClient from irp_integration import IRPClient client = IRPClient() df = client.databridge.execute_query(
+
+"SELECT * FROM portfolios WHERE value > {{ min_value }}", params={'min_value': 1000000}, connection='DATABRIDGE', database='DataWarehouse'
+
+)
+
+# Standalone from irp_integration.databridge import DataBridgeManager db = DataBridgeManager(default_connection='DATABRIDGE') df = db.execute_query("SELECT 1 AS test", database='master')
+
+#### `__init__`
+
+```python
+def __init__(self, default_connection: str = 'DATABRIDGE')
+```
+
+#### `get_connection_config`
 
 ```python
 def get_connection_config(self, connection_name: Optional[str] = None) -> Dict[str, str]
 ```
 
-Get connection configuration for a named MSSQL connection from environment variables.
+Get connection configuration for a named MSSQL connection.
 
-**Args:**
+Reads configuration from environment variables following the pattern
+MSSQL_{CONNECTION_NAME}_{SETTING}.
 
-| Parameter | Description |
-|---|---|
-| `connection_name` | Name of the connection (e.g., `'DATABRIDGE'`). Defaults to the manager's `default_connection`. |
+**Arguments:**
+ - **connection_name:**  Name of the connection (e.g., 'DATABRIDGE', 'ANALYTICS').
+   Defaults to the manager's default_connection.
 
-**Returns:** Dictionary with connection parameters (server, port, driver, user, password, etc.).
+**Returns:**
+> Dictionary with connection parameters: server, port, driver,
+> trust_cert, timeout, user, password.
 
-**Raises:** `IRPValidationError` if required environment variables are missing.
+**Raises:**
+ - **IRPValidationError:**  If required environment variables are missing.
 
----
+**Example:**
+> config = db.get_connection_config('DATABRIDGE')
+> # Returns: {'server': 'db.company.com', 'user': 'svc', ...}
 
-### `build_connection_string`
+#### `build_connection_string`
 
 ```python
-def build_connection_string(self, connection_name: Optional[str] = None, database: Optional[str] = None) -> str
+def build_connection_string(
+    self,
+    connection_name: Optional[str] = None,
+    database: Optional[str] = None
+) -> str
 ```
 
 Build ODBC connection string for SQL Server.
 
-**Args:**
+**Arguments:**
+ - **connection_name:**  Name of the connection. Defaults to the
+   manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-| Parameter | Description |
-|---|---|
-| `connection_name` | Name of the connection. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name to include in the connection string |
+**Returns:**
+> ODBC connection string.
 
-**Returns:** ODBC connection string.
+**Example:**
+> conn_str = db.build_connection_string('DATABRIDGE', database='MyDB')
 
----
-
-### `get_connection`
+#### `get_connection`
 
 ```python
-@contextmanager
-def get_connection(self, connection_name: Optional[str] = None, database: Optional[str] = None)
+def get_connection(
+    self,
+    connection_name: Optional[str] = None,
+    database: Optional[str] = None
+)
 ```
 
-Context manager for SQL Server database connections. Automatically handles connection lifecycle.
+Context manager for SQL Server database connections.
 
-**Args:**
+Automatically handles connection lifecycle: opens connection,
+yields it for use, and closes on exit (even if exception occurs).
 
-| Parameter | Description |
-|---|---|
-| `connection_name` | Name of the connection. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name to connect to |
+**Arguments:**
+ - **connection_name:**  Name of the connection to use. Defaults to
+   the manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-**Yields:** `pyodbc.Connection` object.
+**Yields:**
+> pyodbc.Connection object.
 
-**Raises:** `IRPDataBridgeConnectionError` if connection fails.
+**Raises:**
+ - **IRPDataBridgeConnectionError:**  If connection fails.
 
----
+**Example:**
+> with db.get_connection('DATABRIDGE', database='MyDB') as conn:
+>     cursor = conn.cursor()
+>     cursor.execute("SELECT * FROM portfolios")
+>     rows = cursor.fetchall()
 
-### `test_connection`
+#### `test_connection`
 
 ```python
 def test_connection(self, connection_name: Optional[str] = None) -> bool
@@ -2439,17 +3306,18 @@ def test_connection(self, connection_name: Optional[str] = None) -> bool
 
 Test if a SQL Server connection is working.
 
-**Args:**
+**Arguments:**
+ - **connection_name:**  Name of the connection to test. Defaults to
+   the manager's default_connection.
 
-| Parameter | Description |
-|---|---|
-| `connection_name` | Name of the connection to test. Defaults to the manager's `default_connection`. |
+**Returns:**
+> True if connection successful, False otherwise.
 
-**Returns:** `True` if connection successful, `False` otherwise.
+**Example:**
+> if db.test_connection('DATABRIDGE'):
+>     print("Connection successful!")
 
----
-
-### `execute_query`
+#### `execute_query`
 
 ```python
 def execute_query(
@@ -2458,27 +3326,33 @@ def execute_query(
     params: Optional[Dict[str, Any]] = None,
     connection: Optional[str] = None,
     database: Optional[str] = None
-) -> pd.DataFrame
+) -> pandas.core.frame.DataFrame
 ```
 
-Execute SELECT query and return results as DataFrame. Supports `{{ param_name }}` parameter placeholders.
+Execute SELECT query and return results as DataFrame.
 
-**Args:**
+**Arguments:**
+ - **query:**  SQL SELECT query (supports {{ param_name }} placeholders).
+ - **params:**  Query parameters as dictionary.
+ - **connection:**  Name of the SQL Server connection to use.
+   Defaults to the manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-| Parameter | Description |
-|---|---|
-| `query` | SQL SELECT query (supports `{{ param_name }}` placeholders) |
-| `params` | Query parameters as dictionary |
-| `connection` | SQL Server connection name. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name |
+**Returns:**
+> pandas DataFrame with query results.
 
-**Returns:** pandas DataFrame with query results.
+**Raises:**
+ - **IRPDataBridgeQueryError:**  If query execution fails.
 
-**Raises:** `IRPDataBridgeQueryError` if query execution fails.
+**Example:**
+> df = db.execute_query(
+>     "SELECT * FROM portfolios WHERE value > {{ min_value }}",
+>     params={'min_value': 1000000},
+>     connection='DATABRIDGE',
+>     database='DataWarehouse'
+> )
 
----
-
-### `execute_scalar`
+#### `execute_scalar`
 
 ```python
 def execute_scalar(
@@ -2492,22 +3366,28 @@ def execute_scalar(
 
 Execute query and return single scalar value (first column of first row).
 
-**Args:**
+**Arguments:**
+ - **query:**  SQL query returning single value.
+ - **params:**  Query parameters.
+ - **connection:**  Name of the SQL Server connection to use.
+   Defaults to the manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-| Parameter | Description |
-|---|---|
-| `query` | SQL query returning single value |
-| `params` | Query parameters |
-| `connection` | SQL Server connection name. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name |
+**Returns:**
+> Single value from query result (or None if no results).
 
-**Returns:** Single value from query result (or `None` if no results).
+**Raises:**
+ - **IRPDataBridgeQueryError:**  If query execution fails.
 
-**Raises:** `IRPDataBridgeQueryError` if query execution fails.
+**Example:**
+> count = db.execute_scalar(
+>     "SELECT COUNT(*) FROM portfolios WHERE value > {{ min_value }}",
+>     params={'min_value': 1000000},
+>     connection='DATABRIDGE',
+>     database='DataWarehouse'
+> )
 
----
-
-### `execute_command`
+#### `execute_command`
 
 ```python
 def execute_command(
@@ -2521,22 +3401,29 @@ def execute_command(
 
 Execute non-query command (INSERT, UPDATE, DELETE) and return rows affected.
 
-**Args:**
+**Arguments:**
+ - **query:**  SQL command.
+ - **params:**  Query parameters.
+ - **connection:**  Name of the SQL Server connection to use.
+   Defaults to the manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-| Parameter | Description |
-|---|---|
-| `query` | SQL command |
-| `params` | Query parameters |
-| `connection` | SQL Server connection name. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name |
+**Returns:**
+> Number of rows affected.
 
-**Returns:** Number of rows affected.
+**Raises:**
+ - **IRPDataBridgeQueryError:**  If command execution fails.
 
-**Raises:** `IRPDataBridgeQueryError` if command execution fails.
+**Example:**
+> rows = db.execute_command(
+>     "UPDATE portfolios SET status = {{ status }} WHERE value < {{ min_value }}",
+>     params={'status': 'INACTIVE', 'min_value': 100000},
+>     connection='DATABRIDGE',
+>     database='DataWarehouse'
+> )
+> print(f"Updated {rows} rows")
 
----
-
-### `execute_query_from_file`
+#### `execute_query_from_file`
 
 ```python
 def execute_query_from_file(
@@ -2545,156 +3432,353 @@ def execute_query_from_file(
     params: Optional[Dict[str, Any]] = None,
     connection: Optional[str] = None,
     database: Optional[str] = None
-) -> List[pd.DataFrame]
+) -> List[pandas.core.frame.DataFrame]
 ```
 
-Execute SQL query from file and return results as list of DataFrames. Handles multi-statement scripts (e.g., scripts with USE statements followed by SELECT). Each result set is returned as a separate DataFrame.
+Execute SQL query from file and return results as list of DataFrames.
 
-**Args:**
+Handles both single-statement queries and multi-statement scripts
+(e.g., scripts with USE statements followed by SELECT). Each result
+set is returned as a separate DataFrame in the list.
 
-| Parameter | Description |
-|---|---|
-| `file_path` | Path to SQL file (absolute or relative to cwd) |
-| `params` | Query parameters (supports `{{ param_name }}` placeholders) |
-| `connection` | SQL Server connection name. Defaults to the manager's `default_connection`. |
-| `database` | Optional database name |
+**Arguments:**
+ - **file_path:**  Path to SQL file (absolute or relative to cwd).
+ - **params:**  Query parameters (supports {{ param_name }} placeholders).
+ - **connection:**  Name of the SQL Server connection to use.
+   Defaults to the manager's default_connection.
+ - **database:**  Optional database name to connect to.
 
-**Returns:** List of pandas DataFrames, one per result set.
+**Returns:**
+> List of pandas DataFrames, one per result set.
 
-**Raises:** `IRPValidationError` if file does not exist. `IRPDataBridgeQueryError` if query execution fails.
+**Raises:**
+ - **IRPValidationError:**  If SQL file does not exist.
+ - **IRPDataBridgeQueryError:**  If query execution fails.
+
+**Example:**
+> results = db.execute_query_from_file(
+>     'C:/sql/extract_policies.sql',
+>     params={'cycle_name': 'Q1-2025', 'run_date': '2025-01-15'},
+>     connection='DATABRIDGE',
+>     database='AnalyticsDB'
+> )
+> df = results[0]  # First result set
 
 ---
 
-### Parameter Substitution
+## `irp_integration.exceptions`
 
-SQL queries and scripts support named parameters using `{{ param_name }}` syntax. Parameters are context-aware:
+Custom exception classes for IRP Integration module.
 
-**Value contexts** (escaped and quoted):
-```sql
-SELECT * FROM table WHERE id = {{ user_id }} AND name = {{ user_name }}
--- With params={'user_id': 123, 'user_name': 'John'}
--- Becomes: SELECT * FROM table WHERE id = 123 AND name = 'John'
-```
+These exceptions provide clear, structured error handling for different failure scenarios when interacting with Moody's Risk Modeler API.
 
-**Identifier contexts** (raw substitution, no quoting):
-```sql
--- Inside square brackets:
-USE [{{ db_name }}]
--- Becomes: USE [my_database]
+### `class IRPIntegrationError`
 
--- As part of table names:
-SELECT * FROM CombinedData_{{ date_val }}_Working
--- Becomes: SELECT * FROM CombinedData_20250115_Working
+*Bases:* `builtins.Exception`
 
--- Inside string literals:
-SELECT 'Modeling_{{ date_val }}_Moodys' as table_name
--- Becomes: SELECT 'Modeling_202501_Moodys' as table_name
-```
+Base exception for all IRP integration errors.
 
-**SQL injection protection:**
-- String values have single quotes escaped (doubled)
-- Numeric values are inserted directly
-- NULL values produce the `NULL` keyword
-- Identifier values are validated to contain only safe characters
+### `class IRPAPIError`
+
+*Bases:* `IRPIntegrationError`
+
+API request or response errors.
+
+Raised when HTTP requests fail, responses are malformed, or API returns unexpected status codes.
+
+### `class IRPValidationError`
+
+*Bases:* `IRPIntegrationError`
+
+Input validation errors.
+
+Raised when method parameters fail validation checks (e.g., empty strings, invalid IDs, missing files).
+
+### `class IRPWorkflowError`
+
+*Bases:* `IRPIntegrationError`
+
+Workflow execution errors.
+
+Raised when workflows fail to complete successfully, timeout, or return error status.
+
+### `class IRPReferenceDataError`
+
+*Bases:* `IRPIntegrationError`
+
+Reference data lookup errors.
+
+Raised when required reference data (treaty types, currencies, etc.) cannot be found or retrieved.
+
+### `class IRPFileError`
+
+*Bases:* `IRPIntegrationError`
+
+File operation errors.
+
+Raised when file operations fail (file not found, invalid format, upload errors, etc.).
+
+### `class IRPJobError`
+
+*Bases:* `IRPIntegrationError`
+
+Job management errors.
+
+Raised when job submission, status retrieval, or result fetching encounters issues.
+
+### `class IRPDataBridgeError`
+
+*Bases:* `IRPIntegrationError`
+
+Data Bridge (SQL Server) operation errors.
+
+Base exception for all SQL Server / Data Bridge failures including connection, configuration, and query errors.
+
+### `class IRPDataBridgeConnectionError`
+
+*Bases:* `IRPDataBridgeError`
+
+Data Bridge connection errors.
+
+Raised when SQL Server connection fails (bad credentials, unreachable server, driver not installed).
+
+### `class IRPDataBridgeQueryError`
+
+*Bases:* `IRPDataBridgeError`
+
+Data Bridge query execution errors.
+
+Raised when SQL query execution fails, parameter substitution fails, or SQL file cannot be read.
 
 ---
 
-## Exceptions
+## `irp_integration.validators`
 
-| Exception | Description |
-|---|---|
-| `IRPIntegrationError` | Base exception for all IRP integration errors |
-| `IRPAPIError` | HTTP/API request or response errors |
-| `IRPValidationError` | Input validation failures |
-| `IRPWorkflowError` | Workflow execution failures (timeout, error status) |
-| `IRPReferenceDataError` | Reference data lookup failures |
-| `IRPFileError` | File operation failures (not found, upload errors) |
-| `IRPJobError` | Job management errors (submission, polling, timeout) |
-| `IRPDataBridgeError` | Data Bridge (SQL Server) base error |
-| `IRPDataBridgeConnectionError` | SQL Server connection failures (bad credentials, unreachable server) |
-| `IRPDataBridgeQueryError` | SQL query execution failures, parameter substitution errors |
+Input validation utilities for IRP Integration module.
 
-All exceptions inherit from `IRPIntegrationError`. Data Bridge exceptions inherit from `IRPDataBridgeError`.
+Provides reusable validation functions that raise descriptive IRPValidationError exceptions when validation fails.
+
+### Functions
+
+#### `validate_non_empty_string`
+
+```python
+def validate_non_empty_string(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a non-empty string.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a non-empty string
+
+#### `validate_positive_int`
+
+```python
+def validate_positive_int(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a positive integer.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a positive integer
+
+#### `validate_non_negative_int`
+
+```python
+def validate_non_negative_int(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a non-negative integer.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a non-negative integer
+
+#### `validate_file_exists`
+
+```python
+def validate_file_exists(file_path: str, param_name: str = 'file_path') -> None
+```
+
+Validate that a file exists at the given path.
+
+**Arguments:**
+ - **file_path:**  Path to file
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If file does not exist
+
+#### `validate_list_not_empty`
+
+```python
+def validate_list_not_empty(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a non-empty list.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a non-empty list
+
+#### `validate_positive_float`
+
+```python
+def validate_positive_float(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a positive float.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a positive float
+
+#### `validate_non_negative_float`
+
+```python
+def validate_non_negative_float(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a non-negative float.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a non-negative float
 
 ---
 
-## Common Patterns
+## `irp_integration.utils`
 
-### Authentication
+Utility functions for IRP Integration module.
 
-All requests use the `Authorization` header with the API key and `x-rms-resource-group-id` header from environment variables. These are set automatically on the `requests.Session`.
+Provides common helper functions for response parsing, data extraction, and reference data lookup operations.
 
-### Environment Variables
+### Functions
 
-All three environment variables are required with no defaults:
-
-| Variable | Description |
-|---|---|
-| `RISK_MODELER_BASE_URL` | API base URL |
-| `RISK_MODELER_API_KEY` | API authentication key |
-| `RISK_MODELER_RESOURCE_GROUP_ID` | Resource group ID |
-
-Optional environment variable:
-
-| Variable | Description |
-|---|---|
-| `DATABRIDGE_GROUP_ID` | Group ID for RDM access control (used by `RDMManager.add_group_access_to_rdm`) |
-
-### Workflow Pattern
-
-Most operations are asynchronous and return a job ID rather than immediate results:
-
-1. **Submit** -- POST/DELETE request returns 201/202 with `location` header containing a job/workflow URL
-2. **Extract ID** -- Job ID is extracted from the `location` header
-3. **Poll** -- Poll the job endpoint until status is `FINISHED`, `FAILED`, or `CANCELLED`
+#### `get_location_header`
 
 ```python
-# Single job: submit + poll
-job_id, _ = client.edm.submit_create_edm_job(edm_name="MyEDM")
-result = client.risk_data_job.poll_risk_data_job_to_completion(job_id)
-
-# Batch: submit multiple + poll all
-job_ids = client.edm.submit_create_edm_jobs(edm_data_list)
-results = client.risk_data_job.poll_risk_data_job_batch_to_completion(job_ids)
+def get_location_header(
+    response: requests.models.Response,
+    error_context: str = 'response'
+) -> str
 ```
 
-### Workflow Statuses
+Get Location header from response.
+
+**Arguments:**
+ - **response:**  HTTP response object
+ - **error_context:**  Context description for error message
+
+**Returns:**
+> Location header value
+
+**Raises:**
+ - **IRPAPIError:**  If the Location header is missing
+
+#### `extract_id_from_location_header`
 
 ```python
-WORKFLOW_COMPLETED_STATUSES = ['FINISHED', 'FAILED', 'CANCELLED']
-WORKFLOW_IN_PROGRESS_STATUSES = ['QUEUED', 'PENDING', 'RUNNING', 'CANCEL_REQUESTED', 'CANCELLING']
+def extract_id_from_location_header(
+    response: requests.models.Response,
+    error_context: str = 'response'
+) -> str
 ```
 
-### Pagination
+Extract ID from Location header in HTTP response.
 
-Many search methods offer both a standard version (with `limit`/`offset` parameters) and a `_paginated` variant that automatically fetches all pages:
+**Arguments:**
+ - **response:**  HTTP response object
+ - **error_context:**  Context description for error message
+
+**Returns:**
+> Extracted ID string
+
+**Raises:**
+ - **IRPAPIError:**  If Location header is missing
+
+#### `decode_base64_field`
 
 ```python
-# Manual pagination
-page = client.edm.search_edms(filter='...', limit=100, offset=0)
-
-# Automatic pagination
-all_edms = client.edm.search_edms_paginated(filter='...')
+def decode_base64_field(encoded_value: str, field_name: str) -> str
 ```
 
-### Error Handling
+Decode a base64-encoded field value.
 
-- HTTP errors are enriched with the server response message (up to 200 characters)
-- Retry logic: 5 retries with exponential backoff for status codes 429, 500, 502, 503, 504
-- Default request timeout: 200 seconds
-- Default polling timeout: 600,000 seconds
+**Arguments:**
+ - **encoded_value:**  Base64-encoded string
+ - **field_name:**  Field name for error message
 
-### Resource IDs
+**Returns:**
+> Decoded string
 
-Resource IDs are extracted from the `location` header after creation:
+**Raises:**
+ - **IRPAPIError:**  If decoding fails
+
+#### `decode_presign_params`
 
 ```python
-resource_id = response.headers['location'].split('/')[-1]
+def decode_presign_params(presign_params: Dict[str, Any]) -> Dict[str, str]
 ```
 
-### Session Management
+Decode base64 credentials from MRI import file credentials response.
 
-Uses `requests.Session` with:
-- Connection pooling via `HTTPAdapter`
-- Automatic retry configuration
-- Persistent authentication headers across requests
+**Arguments:**
+ - **presign_params:**  Response JSON containing encoded credentials
+
+**Returns:**
+> Dict with decoded credential fields
+
+**Raises:**
+ - **IRPAPIError:**  If required fields missing or decoding fails
+
+#### `extract_analysis_id_from_workflow_response`
+
+```python
+def extract_analysis_id_from_workflow_response(workflow: Dict[str, Any]) -> Optional[str]
+```
+
+Extract analysis ID from workflow response.
+
+**Arguments:**
+ - **workflow:**  Workflow response dict
+
+**Returns:**
+> Analysis ID if found, None otherwise
+
+**Raises:**
+ - **IRPAPIError:**  If required fields are missing from workflow response
+
+---
+
+## `irp_integration.constants`
+
+API endpoint constants and status/code maps for the Risk Modeler API.
+
+**Defines:**
+
+- Endpoint path templates, grouped by area. Most contain ``str.format`` placeholders (e.g. ``{exposureId}``, ``{jobId}``) that callers fill in with resource IDs before issuing the request.
+- Workflow status groupings: ``WORKFLOW_COMPLETED_STATUSES`` (terminal) and ``WORKFLOW_IN_PROGRESS_STATUSES`` (non-terminal). See ``client.py`` for how these drive polling and the terminal-status contract.
+- Code maps that translate human-readable names to the short API codes: ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, ``TREATY_ATTACHMENT_LEVELS``, and ``PERSPECTIVE_CODES``.
+
+---
