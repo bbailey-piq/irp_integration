@@ -8,7 +8,7 @@ Files are uploaded to S3 and import jobs are submitted through the
 
 import logging
 import os
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 
 from .client import Client
 from .constants import CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
@@ -16,6 +16,10 @@ from .exceptions import IRPAPIError
 from .validators import validate_non_empty_string, validate_file_exists
 from .s3 import S3Manager
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from .edm import EDMManager
+    from .portfolio import PortfolioManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,7 @@ class MRIImportManager:
         self._portfolio_manager = portfolio_manager
 
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded edm manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
@@ -43,7 +47,7 @@ class MRIImportManager:
         return self._edm_manager
 
     @property
-    def portfolio_manager(self):
+    def portfolio_manager(self) -> "PortfolioManager":
         """Lazy-loaded portfolio manager to avoid circular imports."""
         if self._portfolio_manager is None:
             from .portfolio import PortfolioManager

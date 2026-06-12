@@ -7,7 +7,7 @@ Handles portfolio analysis submission, job tracking, and analysis group creation
 import json
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 from .client import Client
 from .constants import (
     CREATE_ANALYSIS_JOB, DELETE_ANALYSIS, GET_ANALYSIS_GROUPING_JOB,
@@ -20,6 +20,12 @@ from .constants import (
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from .reference_data import ReferenceDataManager
+    from .treaty import TreatyManager
+    from .edm import EDMManager
+    from .portfolio import PortfolioManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +54,7 @@ class AnalysisManager:
         self._portfolio_manager = portfolio_manager
 
     @property
-    def reference_data_manager(self):
+    def reference_data_manager(self) -> "ReferenceDataManager":
         """Lazy-loaded reference data manager to avoid circular imports."""
         if self._reference_data_manager is None:
             from .reference_data import ReferenceDataManager
@@ -56,7 +62,7 @@ class AnalysisManager:
         return self._reference_data_manager
     
     @property
-    def treaty_manager(self):
+    def treaty_manager(self) -> "TreatyManager":
         """Lazy-loaded treaty manager to avoid circular imports."""
         if self._treaty_manager is None:
             from .treaty import TreatyManager
@@ -64,7 +70,7 @@ class AnalysisManager:
         return self._treaty_manager
     
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded edm manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
@@ -72,7 +78,7 @@ class AnalysisManager:
         return self._edm_manager
     
     @property
-    def portfolio_manager(self):
+    def portfolio_manager(self) -> "PortfolioManager":
         """Lazy-loaded portfolio manager to avoid circular imports."""
         if self._portfolio_manager is None:
             from .portfolio import PortfolioManager
@@ -164,7 +170,7 @@ class AnalysisManager:
         event_rate_scheme_name: str,
         treaty_names: List[str],
         tag_names: List[str],
-        currency: Dict[str, str] = None,
+        currency: Optional[Dict[str, str]] = None,
         skip_duplicate_check: bool = False,
         franchise_deductible: bool = False,
         min_loss_threshold: float = 1.0,
@@ -461,7 +467,7 @@ class AnalysisManager:
         analysis_info_cache = {}
         all_regions = []
         has_plt = False
-        event_rate_schemes_by_peril_region = {}  # (perilCode, regionCode) -> set of eventRateSchemeIds
+        event_rate_schemes_by_peril_region: Dict[Tuple[str, str], set] = {}  # (perilCode, regionCode) -> set of eventRateSchemeIds
 
         for analysis_id in analysis_ids:
             try:
@@ -510,7 +516,7 @@ class AnalysisManager:
 
                 # Track eventRateSchemeIds per peril/region for disambiguation check
                 if event_rate_scheme_id is not None:
-                    key = (peril_code, region_code)
+                    key: Tuple[Any, ...] = (peril_code, region_code)
                     if key not in event_rate_schemes_by_peril_region:
                         event_rate_schemes_by_peril_region[key] = set()
                     event_rate_schemes_by_peril_region[key].add(event_rate_scheme_id)
@@ -666,7 +672,7 @@ class AnalysisManager:
         # When the same modelRegionCode appears with multiple engine versions (e.g., RL22 and RL23),
         # they should be merged into a single entry with comma-separated engineVersion (e.g., "RL23,RL22")
         # This is required by the API to correctly group losses across engine versions
-        merged_result = {}
+        merged_result: Dict[Any, Dict[str, Any]] = {}
         for entry in result:
             # Create key from all fields except engineVersion
             merge_key = (
@@ -701,9 +707,9 @@ class AnalysisManager:
         reporting_window_start: str = "01/01/2021",
         simulation_window_start: str = "01/01/2021",
         simulation_window_end: str = "12/31/2021",
-        region_peril_simulation_set: List[Dict[str, Any]] = None,
+        region_peril_simulation_set: Optional[List[Dict[str, Any]]] = None,
         description: str = "",
-        currency: Dict[str, str] = None,
+        currency: Optional[Dict[str, str]] = None,
         analysis_edm_map: Optional[Dict[str, str]] = None,
         group_names: Optional[set] = None,
         skip_missing: bool = True

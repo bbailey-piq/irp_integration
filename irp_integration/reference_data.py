@@ -6,7 +6,7 @@ model profiles, output profiles, event rate schemes, currencies, and tags.
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from .client import Client
 from .constants import (
     SEARCH_CURRENCIES, SEARCH_CURRENCY_SCHEME_VINTAGES, GET_TAGS, CREATE_TAG,
@@ -180,8 +180,8 @@ class ReferenceDataManager:
     def get_event_rate_scheme_by_name(
         self,
         scheme_name: str,
-        peril_code: str = None,
-        model_region_code: str = None
+        peril_code: Optional[str] = None,
+        model_region_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Retrieve event rate scheme by name with optional peril and region filtering.

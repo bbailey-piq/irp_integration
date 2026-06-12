@@ -7,7 +7,7 @@ Handles portfolio creation, retrieval, and geocoding/hazard operations.
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from .client import Client
@@ -15,6 +15,9 @@ from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTF
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from .edm import EDMManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ class PortfolioManager:
         self._edm_manager = edm_manager
 
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded edm manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager

@@ -7,7 +7,7 @@ Handles exporting analysis results to RDM via databridge.
 import logging
 import os
 import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 
 from .utils import extract_id_from_location_header
 from .client import Client
@@ -15,6 +15,10 @@ from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORK
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists
 from .s3 import S3Manager
+
+if TYPE_CHECKING:
+    from .analysis import AnalysisManager
+    from .edm import EDMManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ class RDMManager:
         self._edm_manager = edm_manager
 
     @property
-    def analysis_manager(self):
+    def analysis_manager(self) -> "AnalysisManager":
         """Lazy-loaded analysis manager to avoid circular imports."""
         if self._analysis_manager is None:
             from .analysis import AnalysisManager
@@ -42,7 +46,7 @@ class RDMManager:
         return self._analysis_manager
     
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded edm manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
