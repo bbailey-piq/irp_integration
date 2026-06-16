@@ -154,14 +154,14 @@ class PortfolioManager:
 
     def search_accounts_by_portfolio(self, exposure_id: int, portfolio_id: int) -> List[Dict[str, Any]]:
         """
-        Search portfolios within an exposure.
+        Retrieve accounts within a portfolio.
 
         Args:
             exposure_id: Exposure ID
             portfolio_id: Portfolio ID
 
         Returns:
-            Dict containing list of accounts
+            List of account dicts
         """
         validate_positive_int(exposure_id, "exposure_id")
         validate_positive_int(portfolio_id, "portfolio_id")
@@ -230,7 +230,7 @@ class PortfolioManager:
         Args:
             edm_name: Name of EDM datasource
             portfolio_name: Name for new portfolio
-            portfolio_number: Portfolio number (default: "1")
+            portfolio_number: Portfolio number (default: "")
             description: Portfolio description (default: "")
 
         Returns:

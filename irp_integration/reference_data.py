@@ -121,7 +121,7 @@ class ReferenceDataManager:
         Retrieve all output profiles.
 
         Returns:
-            Dict containing output profile list
+            List of output profile dicts
 
         Raises:
             IRPAPIError: If request fails
@@ -141,7 +141,7 @@ class ReferenceDataManager:
             profile_name: Output profile name
 
         Returns:
-            Dict containing output profile details
+            List of matching output profile dicts
 
         Raises:
             IRPValidationError: If profile_name is invalid
@@ -228,7 +228,7 @@ class ReferenceDataManager:
             where_clause: Optional filter clause
 
         Returns:
-            List containing currencies
+            Dict containing currencies (with an 'items' list)
 
         Raises:
             IRPAPIError: If request fails

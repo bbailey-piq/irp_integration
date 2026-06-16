@@ -724,14 +724,14 @@ Fetches all pages of results matching the filter criteria.
 def search_accounts_by_portfolio(self, exposure_id: int, portfolio_id: int) -> List[Dict[str, Any]]
 ```
 
-Search portfolios within an exposure.
+Retrieve accounts within a portfolio.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
  - **portfolio_id:**  Portfolio ID
 
 **Returns:**
-> Dict containing list of accounts
+> List of account dicts
 
 #### `create_portfolios`
 
@@ -772,7 +772,7 @@ Create new portfolio in EDM.
 **Arguments:**
  - **edm_name:**  Name of EDM datasource
  - **portfolio_name:**  Name for new portfolio
- - **portfolio_number:**  Portfolio number (default: "1")
+ - **portfolio_number:**  Portfolio number (default: "")
  - **description:**  Portfolio description (default: "")
 
 **Returns:**
@@ -1835,7 +1835,7 @@ def submit_analysis_export_job(
 Submit an analysis results export job.
 
 **Arguments:**
- - **analysis_id:**  List of analysis IDs to export
+ - **analysis_id:**  ID of the analysis to export
  - **loss_details:**  List of loss detail configurations, each containing:
    - metricType: str (e.g., "LOSS_TABLES")
    - outputLevels: List[str] (e.g., ["Portfolio"])
@@ -1847,7 +1847,7 @@ Submit an analysis results export job.
 
 **Raises:**
  - **IRPValidationError:**  If inputs are invalid
- - **IRPAPIError:**  If any analysis doesn't exist or request fails
+ - **IRPAPIError:**  If the analysis doesn't exist or request fails
 
 ---
 
@@ -2781,7 +2781,7 @@ def get_output_profiles(self) -> List[Dict[str, Any]]
 Retrieve all output profiles.
 
 **Returns:**
-> Dict containing output profile list
+> List of output profile dicts
 
 **Raises:**
  - **IRPAPIError:**  If request fails
@@ -2798,7 +2798,7 @@ Retrieve output profile by name.
  - **profile_name:**  Output profile name
 
 **Returns:**
-> Dict containing output profile details
+> List of matching output profile dicts
 
 **Raises:**
  - **IRPValidationError:**  If profile_name is invalid
@@ -2859,7 +2859,7 @@ Search currencies with optional filtering.
  - **where_clause:**  Optional filter clause
 
 **Returns:**
-> List containing currencies
+> Dict containing currencies (with an 'items' list)
 
 **Raises:**
  - **IRPAPIError:**  If request fails

@@ -1556,7 +1556,7 @@ class AnalysisManager:
         Submit an analysis results export job.
 
         Args:
-            analysis_id: List of analysis IDs to export
+            analysis_id: ID of the analysis to export
             loss_details: List of loss detail configurations, each containing:
                 - metricType: str (e.g., "LOSS_TABLES")
                 - outputLevels: List[str] (e.g., ["Portfolio"])
@@ -1568,7 +1568,7 @@ class AnalysisManager:
 
         Raises:
             IRPValidationError: If inputs are invalid
-            IRPAPIError: If any analysis doesn't exist or request fails
+            IRPAPIError: If the analysis doesn't exist or request fails
         """
         validate_positive_int(analysis_id, "analysis_id")
         validate_list_not_empty(loss_details, "loss_details")
