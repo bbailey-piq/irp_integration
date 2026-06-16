@@ -21,6 +21,11 @@ class RiskDataJobManager:
     """Manager for risk data job status tracking and polling."""
 
     def __init__(self, client: Client) -> None:
+        """Initialize risk data job manager.
+
+        Args:
+            client: IRP API client instance
+        """
         self.client = client
 
 

@@ -33,6 +33,8 @@ class MRIImportManager:
 
         Args:
             client: Client instance for API requests
+            edm_manager: Optional EDMManager instance
+            portfolio_manager: Optional PortfolioManager instance
         """
         self.client = client
         self._edm_manager = edm_manager

@@ -477,7 +477,6 @@ class ReferenceDataManager:
         Raises:
             IRPAPIError: If request fails or simulation set not found
         """
-
         simulation_sets = self.get_all_simulation_sets()
 
         for sim_set in simulation_sets:

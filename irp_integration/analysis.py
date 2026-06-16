@@ -46,6 +46,9 @@ class AnalysisManager:
         Args:
             client: IRP API client instance
             reference_data_manager: Optional ReferenceDataManager instance
+            treaty_manager: Optional TreatyManager instance
+            edm_manager: Optional EDMManager instance
+            portfolio_manager: Optional PortfolioManager instance
         """
         self.client = client
         self._reference_data_manager = reference_data_manager

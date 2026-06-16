@@ -31,6 +31,7 @@ class PortfolioManager:
 
         Args:
             client: IRP API client instance
+            edm_manager: Optional EDMManager instance
         """
         self.client = client
         self._edm_manager = edm_manager

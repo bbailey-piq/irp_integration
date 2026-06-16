@@ -1,9 +1,9 @@
 """
-Client for IRP Integration API requests — HTTP transport plus the cross-cutting
-contracts every manager relies on.
+Client for IRP Integration API requests.
 
-This module is the authoritative home for those contracts; other modules point
-here rather than restating them.
+HTTP transport plus the cross-cutting contracts every manager relies on. This
+module is the authoritative home for those contracts; other modules point here
+rather than restating them.
 
 Async workflow model:
     Most write operations are asynchronous: submit a request, receive a
@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 class Client:
-
     """Client for Moody's Risk Modeler API."""
 
     def __init__(self) -> None:

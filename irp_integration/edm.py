@@ -40,6 +40,8 @@ class EDMManager:
         Args:
             client: IRP API client instance
             portfolio_manager: Optional PortfolioManager instance
+            analysis_manager: Optional AnalysisManager instance
+            risk_data_job_manager: Optional RiskDataJobManager instance
         """
         self.client = client
         self._portfolio_manager = portfolio_manager

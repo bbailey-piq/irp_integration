@@ -54,6 +54,7 @@ class IRPClient:
     """Main client for IRP integration providing access to all managers."""
 
     def __init__(self) -> None:
+        """Initialize the client and instantiate every manager."""
         self._client = Client()
         self.risk_data_job = RiskDataJobManager(self._client)
         self.edm = EDMManager(self._client)

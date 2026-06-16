@@ -149,6 +149,12 @@ class DataBridgeManager:
     """
 
     def __init__(self, default_connection: str = 'DATABRIDGE') -> None:
+        """Initialize the Data Bridge manager.
+
+        Args:
+            default_connection: Name of the connection used when a query does
+                not specify one (default: "DATABRIDGE")
+        """
         self._default_connection = default_connection.upper()
 
     # ======================================================================

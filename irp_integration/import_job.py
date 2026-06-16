@@ -41,6 +41,7 @@ class ImportJobManager:
             client: IRP API client instance
             edm_manager: Optional EDMManager instance for EDM import routing
             rdm_manager: Optional RDMManager instance for RDM import routing
+            mri_manager: Optional MRIImportManager instance for MRI import routing
         """
         self.client = client
         self._edm_manager = edm_manager

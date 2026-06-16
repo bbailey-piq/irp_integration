@@ -32,6 +32,7 @@ class RDMManager:
         Args:
             client: IRP API client instance
             analysis_manager: Optional AnalysisManager instance
+            edm_manager: Optional EDMManager instance
         """
         self.client = client
         self._analysis_manager = analysis_manager

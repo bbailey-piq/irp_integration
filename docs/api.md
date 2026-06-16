@@ -69,9 +69,9 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
 
 ## `irp_integration.client`
 
-Client for IRP Integration API requests — HTTP transport plus the cross-cutting contracts every manager relies on.
+Client for IRP Integration API requests.
 
-This module is the authoritative home for those contracts; other modules point here rather than restating them.
+HTTP transport plus the cross-cutting contracts every manager relies on. This module is the authoritative home for those contracts; other modules point here rather than restating them.
 
 **Async workflow model:**
 
@@ -315,6 +315,8 @@ Initialize EDM manager.
 **Arguments:**
  - **client:**  IRP API client instance
  - **portfolio_manager:**  Optional PortfolioManager instance
+ - **analysis_manager:**  Optional AnalysisManager instance
+ - **risk_data_job_manager:**  Optional RiskDataJobManager instance
 
 #### `validate_unique_edms`
 
@@ -639,6 +641,7 @@ Initialize portfolio manager.
 
 **Arguments:**
  - **client:**  IRP API client instance
+ - **edm_manager:**  Optional EDMManager instance
 
 #### `get_portfolio_by_id`
 
@@ -937,6 +940,8 @@ Initialize MRI Import Manager.
 
 **Arguments:**
  - **client:**  Client instance for API requests
+ - **edm_manager:**  Optional EDMManager instance
+ - **portfolio_manager:**  Optional PortfolioManager instance
 
 #### `submit_mri_import_job`
 
@@ -1186,6 +1191,9 @@ Initialize analysis manager.
 **Arguments:**
  - **client:**  IRP API client instance
  - **reference_data_manager:**  Optional ReferenceDataManager instance
+ - **treaty_manager:**  Optional TreatyManager instance
+ - **edm_manager:**  Optional EDMManager instance
+ - **portfolio_manager:**  Optional PortfolioManager instance
 
 #### `get_analysis_by_id`
 
@@ -1877,6 +1885,7 @@ Initialize RDM manager.
 **Arguments:**
  - **client:**  IRP API client instance
  - **analysis_manager:**  Optional AnalysisManager instance
+ - **edm_manager:**  Optional EDMManager instance
 
 #### `export_analyses_to_rdm`
 
@@ -2240,6 +2249,11 @@ Manager for risk data job status tracking and polling.
 def __init__(self, client: irp_integration.client.Client)
 ```
 
+Initialize risk data job manager.
+
+**Arguments:**
+ - **client:**  IRP API client instance
+
 #### `get_risk_data_job`
 
 ```python
@@ -2368,6 +2382,7 @@ Initialize ImportJobManager.
  - **client:**  IRP API client instance
  - **edm_manager:**  Optional EDMManager instance for EDM import routing
  - **rdm_manager:**  Optional RDMManager instance for RDM import routing
+ - **mri_manager:**  Optional MRIImportManager instance for MRI import routing
 
 #### `submit_job`
 
@@ -3216,6 +3231,12 @@ MSSQL_DRIVER     - ODBC driver name (default: 'ODBC Driver 18 for SQL Server') M
 ```python
 def __init__(self, default_connection: str = 'DATABRIDGE')
 ```
+
+Initialize the Data Bridge manager.
+
+**Arguments:**
+ - **default_connection:**  Name of the connection used when a query does
+   not specify one (default: "DATABRIDGE")
 
 #### `get_connection_config`
 
