@@ -1,9 +1,26 @@
 """
 Python client library for Moody's Risk Modeler API.
 
-Provides a clean interface for insurance risk analysis operations including
-exposure data management (EDM), portfolio operations, MRI imports,
-treaty management, and analysis execution.
+The single entry point is ``IRPClient``, which holds one HTTP client and exposes
+a manager per functional area; reach operations through those managers.
+
+Managers (``client.<name>``):
+    edm, portfolio, mri_import, treaty, analysis, risk_data_job, rdm,
+    import_job, export_job, reference_data, and (optional) databridge.
+
+Name-based interface: high-level methods accept human-readable names (EDM names,
+portfolio names, profile names, treaty names) and resolve them to IDs internally.
+
+S3 transfers for import/export staging are handled transparently by the relevant
+managers — there is no need to hand-roll boto3.
+
+Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only
+when the ``[databridge]`` extra and its ODBC driver are installed.
+
+Pointers:
+    - Cross-cutting workflow contract, including terminal-status handling → ``client.py``.
+    - Domain concepts → each area's module docstring (e.g. ``analysis.py``,
+      ``edm.py``, ``rdm.py``, ``treaty.py``).
 """
 
 import logging
@@ -31,12 +48,13 @@ from .export_job import ExportJobManager
 try:
     from .databridge import DataBridgeManager
 except ImportError:
-    DataBridgeManager = None
+    DataBridgeManager = None  # type: ignore[assignment,misc]
 
 class IRPClient:
     """Main client for IRP integration providing access to all managers."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the client and instantiate every manager."""
         self._client = Client()
         self.risk_data_job = RiskDataJobManager(self._client)
         self.edm = EDMManager(self._client)

@@ -29,6 +29,13 @@ dependencies = [
 
 [project.optional-dependencies]
 databridge = ["pyodbc>=4.0.0", "pandas>=1.5.0", "numpy>=1.23.0"]
+# docs/api.md is committed and CI fails on drift, so every input to the
+# generator must be reproducible across machines. pdoc is pinned, and pandas/numpy
+# are pinned too because pdoc renders their type annotations and the rendered
+# module paths shift between releases (see _normalize_types in the generator).
+# These pins only apply to the doc/dev toolchain; the databridge extra keeps its
+# looser floors for end users.
+dev = ["mypy", "ruff", "pdoc==16.0.*", "pandas==2.3.*", "numpy==2.3.*"]
 
 [project.urls]
 Homepage = "https://github.com/premiumiq/irp-integration"
@@ -41,3 +48,19 @@ include = ["irp_integration*"]
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+
+[tool.ruff.lint]
+# pydocstyle (D) rules, Google convention. Whole-package rules that would flag
+# every module (D100/D104) and the summary-placement rules that conflict with
+# this project's "summary on the second line" style (D203/D212/D213) are
+# ignored so the focus stays on Args/Returns/Raises docstring accuracy
+# (e.g. D417 undocumented-param).
+select = ["D"]
+ignore = ["D100", "D104", "D203", "D212", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

@@ -18,8 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 class RiskDataJobManager:
+    """Manager for risk data job status tracking and polling."""
 
     def __init__(self, client: Client) -> None:
+        """Initialize risk data job manager.
+
+        Args:
+            client: IRP API client instance
+        """
         self.client = client
 
 
@@ -84,10 +90,22 @@ class RiskDataJobManager:
         """
         Poll risk data job until completion or timeout.
 
+        Returns on any terminal status (FINISHED, FAILED, or CANCELLED) — the
+        caller must inspect the returned ``status`` (see the workflow contract
+        in ``client.py``).
+
         Args:
             job_id: Job ID
             interval: Polling interval in seconds
             timeout: Maximum timeout in seconds
+
+        Returns:
+            Dict containing the final job status details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPJobError: If the job times out
+            IRPAPIError: If a status request fails
         """
         validate_positive_int(job_id, "job_id")
         validate_positive_int(interval, "interval")

@@ -32,7 +32,7 @@ import os
 import re
 import logging
 from contextlib import contextmanager
-from typing import List, Optional, Dict, Any, Union, Tuple
+from typing import List, Optional, Dict, Any, Union, Tuple, cast
 from string import Template
 
 import pandas as pd
@@ -149,6 +149,12 @@ class DataBridgeManager:
     """
 
     def __init__(self, default_connection: str = 'DATABRIDGE') -> None:
+        """Initialize the Data Bridge manager.
+
+        Args:
+            default_connection: Name of the connection used when a query does
+                not specify one (default: "DATABRIDGE")
+        """
         self._default_connection = default_connection.upper()
 
     # ======================================================================
@@ -203,7 +209,9 @@ class DataBridgeManager:
                 f"  MSSQL_{connection_name}_PASSWORD=<password>"
             )
 
-        return config
+        # Required fields are validated above; optional fields all have defaults,
+        # so every value is a non-None str at this point.
+        return cast(Dict[str, str], config)
 
     def build_connection_string(
         self,

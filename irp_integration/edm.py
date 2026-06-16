@@ -8,13 +8,18 @@ associated data retrieval (cedants, LOBs).
 import json
 import logging
 import time
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from .client import Client
 from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
 from .utils import extract_id_from_location_header
 from .s3 import S3Manager
+
+if TYPE_CHECKING:
+    from .portfolio import PortfolioManager
+    from .analysis import AnalysisManager
+    from .risk_data_job import RiskDataJobManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,8 @@ class EDMManager:
         Args:
             client: IRP API client instance
             portfolio_manager: Optional PortfolioManager instance
+            analysis_manager: Optional AnalysisManager instance
+            risk_data_job_manager: Optional RiskDataJobManager instance
         """
         self.client = client
         self._portfolio_manager = portfolio_manager
@@ -43,7 +50,7 @@ class EDMManager:
 
 
     @property
-    def portfolio_manager(self):
+    def portfolio_manager(self) -> "PortfolioManager":
         """Lazy-loaded portfolio manager to avoid circular imports."""
         if self._portfolio_manager is None:
             from .portfolio import PortfolioManager
@@ -51,7 +58,7 @@ class EDMManager:
         return self._portfolio_manager
     
     @property
-    def analysis_manager(self):
+    def analysis_manager(self) -> "AnalysisManager":
         """Lazy-loaded analysis manager to avoid circular imports."""
         if self._analysis_manager is None:
             from .analysis import AnalysisManager
@@ -59,7 +66,7 @@ class EDMManager:
         return self._analysis_manager
     
     @property
-    def risk_data_job_manager(self):
+    def risk_data_job_manager(self) -> "RiskDataJobManager":
         """Lazy-loaded risk data job manager to avoid circular imports."""
         if self._risk_data_job_manager is None:
             from .risk_data_job import RiskDataJobManager
@@ -138,7 +145,7 @@ class EDMManager:
             filter: Optional filter string for server names
 
         Returns:
-            Dict containing list of database servers
+            List of database server dicts
         """
         params = {}
         if filter:
@@ -158,7 +165,7 @@ class EDMManager:
             filter: Optional filter string for exposure set names
 
         Returns:
-            Dict containing list of exposure sets
+            List of exposure set dicts
         """
         params = {}
         if filter:
@@ -505,7 +512,7 @@ class EDMManager:
             IRPValidationError: If exposure_id is invalid
             IRPAPIError: If request fails
         """
-        validate_positive_int(exposure_id, "edm_name")
+        validate_positive_int(exposure_id, "exposure_id")
         try:
             response = self.client.request('GET', GET_CEDANTS.format(exposureId=exposure_id))
             return response.json()
@@ -518,16 +525,16 @@ class EDMManager:
         Retrieve lines of business (LOBs) for an EDM.
 
         Args:
-            edm_name: Name of EDM
+            exposure_id: Exposure ID
 
         Returns:
-            Dict containing LOB list
+            List of LOB dicts
 
         Raises:
-            IRPValidationError: If edm_name is invalid
+            IRPValidationError: If exposure_id is invalid
             IRPAPIError: If request fails
         """
-        validate_positive_int(exposure_id, "edm_name")
+        validate_positive_int(exposure_id, "exposure_id")
         try:
             response = self.client.request('GET', GET_LOBS.format(exposureId=exposure_id))
             return response.json()

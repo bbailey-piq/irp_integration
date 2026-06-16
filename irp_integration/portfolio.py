@@ -7,7 +7,7 @@ Handles portfolio creation, retrieval, and geocoding/hazard operations.
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from .client import Client
@@ -15,6 +15,9 @@ from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTF
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from .edm import EDMManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +31,13 @@ class PortfolioManager:
 
         Args:
             client: IRP API client instance
+            edm_manager: Optional EDMManager instance
         """
         self.client = client
         self._edm_manager = edm_manager
 
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded edm manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
@@ -151,14 +155,14 @@ class PortfolioManager:
 
     def search_accounts_by_portfolio(self, exposure_id: int, portfolio_id: int) -> List[Dict[str, Any]]:
         """
-        Search portfolios within an exposure.
+        Retrieve accounts within a portfolio.
 
         Args:
             exposure_id: Exposure ID
             portfolio_id: Portfolio ID
 
         Returns:
-            Dict containing list of accounts
+            List of account dicts
         """
         validate_positive_int(exposure_id, "exposure_id")
         validate_positive_int(portfolio_id, "portfolio_id")
@@ -225,10 +229,12 @@ class PortfolioManager:
         Create new portfolio in EDM.
 
         Args:
-            exposure_id: ID of EDM datasource
+            edm_name: Name of EDM datasource
             portfolio_name: Name for new portfolio
-            portfolio_number: Portfolio number (default: "1")
-            description: Portfolio description (default: "")
+            portfolio_number: Portfolio number; defaults to portfolio_name when
+                empty and is truncated to 20 characters (default: "")
+            description: Portfolio description; an auto-generated description is
+                used when empty (default: "")
 
         Returns:
             Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
@@ -340,6 +346,10 @@ class PortfolioManager:
             version: Geocode version (default: "22.0")
             hazard_eq: Enable earthquake hazard (default: False)
             hazard_ws: Enable windstorm hazard (default: False)
+            geocode_layer_options: Geocode layer option overrides; a default
+                set is used when None (default: None)
+            hazard_layer_options: Hazard layer option overrides; a default set
+                is used when None (default: None)
 
         Returns:
             Tuple of (job_id, request_body) where request_body is the HTTP request payload

@@ -6,7 +6,7 @@ and Line of Business (LOB) assignments.
 """
 
 import logging
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, TYPE_CHECKING
 from .client import Client
 from .constants import (
     CREATE_TREATY,
@@ -19,6 +19,10 @@ from .constants import (
 from .exceptions import IRPAPIError, IRPValidationError, IRPReferenceDataError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int, validate_non_negative_float, validate_non_negative_int
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from .edm import EDMManager
+    from .reference_data import ReferenceDataManager
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +44,7 @@ class TreatyManager:
         self._reference_data_manager = reference_data_manager
 
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-load EDMManager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
@@ -48,7 +52,7 @@ class TreatyManager:
         return self._edm_manager
 
     @property
-    def reference_data_manager(self):
+    def reference_data_manager(self) -> "ReferenceDataManager":
         """Lazy-load ReferenceDataManager to avoid circular imports."""
         if self._reference_data_manager is None:
             from .reference_data import ReferenceDataManager

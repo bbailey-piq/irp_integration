@@ -6,7 +6,7 @@ model profiles, output profiles, event rate schemes, currencies, and tags.
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from .client import Client
 from .constants import (
     SEARCH_CURRENCIES, SEARCH_CURRENCY_SCHEME_VINTAGES, GET_TAGS, CREATE_TAG,
@@ -121,7 +121,7 @@ class ReferenceDataManager:
         Retrieve all output profiles.
 
         Returns:
-            Dict containing output profile list
+            List of output profile dicts
 
         Raises:
             IRPAPIError: If request fails
@@ -141,7 +141,7 @@ class ReferenceDataManager:
             profile_name: Output profile name
 
         Returns:
-            Dict containing output profile details
+            List of matching output profile dicts
 
         Raises:
             IRPValidationError: If profile_name is invalid
@@ -180,8 +180,8 @@ class ReferenceDataManager:
     def get_event_rate_scheme_by_name(
         self,
         scheme_name: str,
-        peril_code: str = None,
-        model_region_code: str = None
+        peril_code: Optional[str] = None,
+        model_region_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Retrieve event rate scheme by name with optional peril and region filtering.
@@ -228,7 +228,7 @@ class ReferenceDataManager:
             where_clause: Optional filter clause
 
         Returns:
-            List containing currencies
+            Dict containing currencies (with an 'items' list)
 
         Raises:
             IRPAPIError: If request fails
@@ -477,7 +477,6 @@ class ReferenceDataManager:
         Raises:
             IRPAPIError: If request fails or simulation set not found
         """
-
         simulation_sets = self.get_all_simulation_sets()
 
         for sim_set in simulation_sets:

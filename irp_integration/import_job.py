@@ -7,12 +7,17 @@ platform import jobs. Uses the /platform/import/v1/jobs endpoint.
 
 import logging
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 
 from .client import Client
 from .constants import GET_IMPORT_JOB, WORKFLOW_COMPLETED_STATUSES
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
 from .validators import validate_positive_int, validate_non_empty_string
+
+if TYPE_CHECKING:
+    from .edm import EDMManager
+    from .rdm import RDMManager
+    from .mri_import import MRIImportManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,7 @@ class ImportJobManager:
             client: IRP API client instance
             edm_manager: Optional EDMManager instance for EDM import routing
             rdm_manager: Optional RDMManager instance for RDM import routing
+            mri_manager: Optional MRIImportManager instance for MRI import routing
         """
         self.client = client
         self._edm_manager = edm_manager
@@ -43,7 +49,7 @@ class ImportJobManager:
         self._mri_manager = mri_manager
 
     @property
-    def edm_manager(self):
+    def edm_manager(self) -> "EDMManager":
         """Lazy-loaded EDM manager to avoid circular imports."""
         if self._edm_manager is None:
             from .edm import EDMManager
@@ -51,7 +57,7 @@ class ImportJobManager:
         return self._edm_manager
 
     @property
-    def rdm_manager(self):
+    def rdm_manager(self) -> "RDMManager":
         """Lazy-loaded RDM manager to avoid circular imports."""
         if self._rdm_manager is None:
             from .rdm import RDMManager
@@ -59,7 +65,7 @@ class ImportJobManager:
         return self._rdm_manager
     
     @property
-    def mri_manager(self):
+    def mri_manager(self) -> "MRIImportManager":
         """Lazy-loaded MRI manager to avoid circular imports."""
         if self._mri_manager is None:
             from .mri_import import MRIImportManager

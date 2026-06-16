@@ -1,8 +1,34 @@
 """
 Client for IRP Integration API requests.
 
-Handles HTTP requests with retry logic, workflow polling,
-and batch workflow execution.
+HTTP transport plus the cross-cutting contracts every manager relies on. This
+module is the authoritative home for those contracts; other modules point here
+rather than restating them.
+
+Async workflow model:
+    Most write operations are asynchronous: submit a request, receive a
+    ``201``/``202`` with a ``Location`` header naming the workflow, then poll
+    that workflow until it reaches a terminal status. Building blocks:
+        - ``execute_workflow(method, path, ...)`` — submit and poll in one call.
+        - ``poll_workflow(url)`` — poll a workflow by its ``Location`` URL.
+        - ``poll_workflow_to_completion(id)`` — poll a workflow by ID.
+        - ``poll_workflow_batch_to_completion(ids)`` — poll many workflows at once.
+
+Terminal status is not success:
+    ``WORKFLOW_COMPLETED_STATUSES`` is ``FINISHED``, ``FAILED``, and
+    ``CANCELLED``. Polling returns as soon as a workflow reaches *any* of these —
+    including ``FAILED`` and ``CANCELLED``. A returned result therefore signals
+    only that the workflow is done, not that it succeeded; the caller must
+    inspect the returned ``status``.
+
+Retries:
+    Retries are built into the underlying session — 5 attempts with exponential
+    backoff for ``429`` and ``5xx`` responses, across all HTTP methods. Do not
+    add another retry layer on top of these calls.
+
+Auth/config:
+    Credentials and the API base URL come from three environment variables,
+    read once in ``Client.__init__`` (which raises if any is missing).
 """
 
 import json
@@ -22,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 class Client:
-
     """Client for Moody's Risk Modeler API."""
 
     def __init__(self) -> None:
@@ -182,10 +207,22 @@ class Client:
         """
         Poll workflow until completion or timeout.
 
+        Returns on any terminal status (FINISHED, FAILED, or CANCELLED) — the
+        caller must inspect the returned ``status``; see "Terminal status is not
+        success" in the module docstring.
+
         Args:
             workflow_id: Workflow ID
             interval: Polling interval in seconds
             timeout: Maximum timeout in seconds
+
+        Returns:
+            Dict containing the final workflow status details
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPJobError: If the workflow times out
+            IRPAPIError: If a status request fails
         """
         validate_positive_int(workflow_id, "workflow_id")
         validate_positive_int(interval, "interval")

@@ -42,9 +42,9 @@ client.analysis.submit_portfolio_analysis_job(
     edm_name=edm_name,
     portfolio_name=portfolio_name,
     job_name="Readme Analysis",
-    model_profile_id=4418,
-    output_profile_id=123,
-    event_rate_scheme_id=739,
+    analysis_profile_name='US Hurricane HD',
+    output_profile_name='Standard Output Profile',
+    event_rate_scheme_name='RMS Default',
     treaty_names=['Working Excess Treaty 1'],
     tag_names=['Tag1', 'Tag2']
 )
@@ -180,7 +180,16 @@ from irp_integration.exceptions import (
 
 ## API Documentation
 
-For detailed API endpoint documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
+For detailed API documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
+
+`docs/api.md` is generated from the source docstrings and type hints, so it never drifts from the code. To regenerate it after changing docstrings:
+
+```bash
+pip install "irp-integration[dev,databridge]"
+python docs/generate_api_docs.py
+```
+
+The `databridge` extra is required: the generator introspects every module, including `databridge`, so its optional dependencies must be importable. CI regenerates with the same extras and fails if the committed `docs/api.md` differs.
 
 ## License
 
