@@ -3347,7 +3347,7 @@ def execute_query(
     params: Optional[Dict[str, Any]] = None,
     connection: Optional[str] = None,
     database: Optional[str] = None
-) -> pandas.core.frame.DataFrame
+) -> pandas.DataFrame
 ```
 
 Execute SELECT query and return results as DataFrame.
@@ -3453,7 +3453,7 @@ def execute_query_from_file(
     params: Optional[Dict[str, Any]] = None,
     connection: Optional[str] = None,
     database: Optional[str] = None
-) -> List[pandas.core.frame.DataFrame]
+) -> List[pandas.DataFrame]
 ```
 
 Execute SQL query from file and return results as list of DataFrames.

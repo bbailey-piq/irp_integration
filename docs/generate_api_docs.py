@@ -166,8 +166,20 @@ def render_method_doc(text: str) -> str:
 # --- structure rendering -----------------------------------------------------
 
 
+def _normalize_types(text: str) -> str:
+    """Collapse version-dependent type paths to a stable public form.
+
+    pandas exposes ``DataFrame``/``Series`` under ``pandas.core.*`` in some
+    releases and directly under ``pandas`` in others, so pdoc renders the
+    annotation differently depending on the installed pandas version. Collapse
+    ``pandas.core.<...>.<Name>`` to ``pandas.<Name>`` so the generated docs don't
+    drift with the pandas version present at generation time.
+    """
+    return re.sub(r"\bpandas\.core\.[\w.]+\.(\w+)", r"pandas.\1", text)
+
+
 def render_signature(func) -> str:
-    return f"{func.funcdef} {func.name}{func.signature}"
+    return _normalize_types(f"{func.funcdef} {func.name}{func.signature}")
 
 
 def render_function(func, level: int) -> list:
