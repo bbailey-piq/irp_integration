@@ -18,7 +18,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only
 when the ``[databridge]`` extra and its ODBC driver are installed.
 
 Pointers:
-    - Cross-cutting workflow contract and the terminal-status gotcha → ``client.py``.
+    - Cross-cutting workflow contract, including terminal-status handling → ``client.py``.
     - Domain concepts → each area's module docstring (e.g. ``analysis.py``,
       ``edm.py``, ``rdm.py``, ``treaty.py``).
 """

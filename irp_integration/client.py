@@ -14,11 +14,12 @@ Async workflow model:
         - ``poll_workflow_to_completion(id)`` — poll a workflow by ID.
         - ``poll_workflow_batch_to_completion(ids)`` — poll many workflows at once.
 
-Terminal-status gotcha:
+Terminal status is not success:
     ``WORKFLOW_COMPLETED_STATUSES`` is ``FINISHED``, ``FAILED``, and
     ``CANCELLED``. Polling returns as soon as a workflow reaches *any* of these —
-    including ``FAILED`` and ``CANCELLED``. A returned result is therefore not a
-    success signal; the caller must inspect the returned ``status``.
+    including ``FAILED`` and ``CANCELLED``. A returned result therefore signals
+    only that the workflow is done, not that it succeeded; the caller must
+    inspect the returned ``status``.
 
 Retries:
     Retries are built into the underlying session — 5 attempts with exponential
@@ -208,8 +209,8 @@ class Client:
         Poll workflow until completion or timeout.
 
         Returns on any terminal status (FINISHED, FAILED, or CANCELLED) — the
-        caller must inspect the returned ``status``; see the module docstring's
-        "terminal-status gotcha".
+        caller must inspect the returned ``status``; see "Terminal status is not
+        success" in the module docstring.
 
         Args:
             workflow_id: Workflow ID
