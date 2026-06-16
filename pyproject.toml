@@ -29,7 +29,9 @@ dependencies = [
 
 [project.optional-dependencies]
 databridge = ["pyodbc>=4.0.0", "pandas>=1.5.0", "numpy>=1.23.0"]
-dev = ["mypy", "ruff", "pdoc"]
+# pdoc is pinned: docs/api.md is committed and CI fails on drift, so the
+# generator's output must be reproducible across machines.
+dev = ["mypy", "ruff", "pdoc==16.0.*"]
 
 [project.urls]
 Homepage = "https://github.com/premiumiq/irp-integration"

@@ -49,3 +49,28 @@ jobs:
 
       - name: Docstring lint (ruff)
         run: ruff check irp_integration
+
+  docs:
+    name: Docs in sync
+    runs-on: ubuntu-latest
+    # Blocking (no continue-on-error): the "generated, can't drift" guarantee is
+    # only real if a stale docs/api.md actually fails the PR.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev extra
+        run: pip install ".[dev]"
+
+      - name: Regenerate API docs
+        run: python docs/generate_api_docs.py
+
+      - name: Fail if docs/api.md is stale
+        run: |
+          git diff --exit-code docs/api.md \
+            || { echo "::error::docs/api.md is out of date. Run 'python docs/generate_api_docs.py' and commit the result."; exit 1; }
