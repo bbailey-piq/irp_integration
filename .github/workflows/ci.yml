@@ -64,8 +64,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install package with dev extra
-        run: pip install ".[dev]"
+      - name: Install package with dev + databridge extras
+        # pdoc imports every module to introspect it, so optional-dependency
+        # modules (databridge → pandas/numpy/pyodbc) must be importable too.
+        run: pip install ".[dev,databridge]"
 
       - name: Regenerate API docs
         run: python docs/generate_api_docs.py
