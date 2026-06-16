@@ -185,9 +185,11 @@ For detailed API documentation, see [docs/api.md](https://github.com/premiumiq/i
 `docs/api.md` is generated from the source docstrings and type hints, so it never drifts from the code. To regenerate it after changing docstrings:
 
 ```bash
-pip install irp-integration[dev]
+pip install "irp-integration[dev,databridge]"
 python docs/generate_api_docs.py
 ```
+
+The `databridge` extra is required: the generator introspects every module, including `databridge`, so its optional dependencies must be importable. CI regenerates with the same extras and fails if the committed `docs/api.md` differs.
 
 ## License
 

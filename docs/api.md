@@ -775,8 +775,10 @@ Create new portfolio in EDM.
 **Arguments:**
  - **edm_name:**  Name of EDM datasource
  - **portfolio_name:**  Name for new portfolio
- - **portfolio_number:**  Portfolio number (default: "")
- - **description:**  Portfolio description (default: "")
+ - **portfolio_number:**  Portfolio number; defaults to portfolio_name when
+   empty and is truncated to 20 characters (default: "")
+ - **description:**  Portfolio description; an auto-generated description is
+   used when empty (default: "")
 
 **Returns:**
 > Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload

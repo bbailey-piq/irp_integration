@@ -169,13 +169,19 @@ def render_method_doc(text: str) -> str:
 def _normalize_types(text: str) -> str:
     """Collapse version-dependent type paths to a stable public form.
 
-    pandas exposes ``DataFrame``/``Series`` under ``pandas.core.*`` in some
-    releases and directly under ``pandas`` in others, so pdoc renders the
-    annotation differently depending on the installed pandas version. Collapse
-    ``pandas.core.<...>.<Name>`` to ``pandas.<Name>`` so the generated docs don't
-    drift with the pandas version present at generation time.
+    pandas and numpy expose their public types (e.g. ``DataFrame``, ``Series``,
+    ``ndarray``) under private internal modules (``pandas.core.*``,
+    ``numpy.core``/``numpy._core``) that move between releases, so pdoc renders
+    the annotation differently depending on the installed version. Collapse those
+    internal paths to the public ``pandas.<Name>`` / ``numpy.<Name>`` form so the
+    generated docs don't drift with the version present at generation time.
+
+    The dev extra also pins pandas/numpy; this normalization is the second line
+    of defence so the committed docs stay reproducible even if the pins change.
     """
-    return re.sub(r"\bpandas\.core\.[\w.]+\.(\w+)", r"pandas.\1", text)
+    text = re.sub(r"\bpandas\.core\.[\w.]+\.(\w+)", r"pandas.\1", text)
+    text = re.sub(r"\bnumpy\.(?:_?core)\.[\w.]+\.(\w+)", r"numpy.\1", text)
+    return text
 
 
 def render_signature(func) -> str:

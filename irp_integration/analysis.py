@@ -7,7 +7,7 @@ Handles portfolio analysis submission, job tracking, and analysis group creation
 import json
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Any, Optional, Set, Tuple, TYPE_CHECKING
 from .client import Client
 from .constants import (
     CREATE_ANALYSIS_JOB, DELETE_ANALYSIS, GET_ANALYSIS_GROUPING_JOB,
@@ -470,7 +470,7 @@ class AnalysisManager:
         analysis_info_cache = {}
         all_regions = []
         has_plt = False
-        event_rate_schemes_by_peril_region: Dict[Tuple[str, str], set] = {}  # (perilCode, regionCode) -> set of eventRateSchemeIds
+        event_rate_schemes_by_peril_region: Dict[Tuple[str, str], Set[int]] = {}  # (perilCode, regionCode) -> set of eventRateSchemeIds
 
         for analysis_id in analysis_ids:
             try:
@@ -519,6 +519,8 @@ class AnalysisManager:
 
                 # Track eventRateSchemeIds per peril/region for disambiguation check
                 if event_rate_scheme_id is not None:
+                    # `key` is reused later in this function for longer tuples,
+                    # so it is annotated variadic rather than as a 2-tuple.
                     key: Tuple[Any, ...] = (peril_code, region_code)
                     if key not in event_rate_schemes_by_peril_region:
                         event_rate_schemes_by_peril_region[key] = set()
