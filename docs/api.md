@@ -53,6 +53,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
 - [`irp_integration.exceptions`](#irp_integrationexceptions)
   - [IRPIntegrationError](#class-irpintegrationerror)
   - [IRPAPIError](#class-irpapierror)
+  - [IRPAuthenticationError](#class-irpauthenticationerror)
   - [IRPValidationError](#class-irpvalidationerror)
   - [IRPWorkflowError](#class-irpworkflowerror)
   - [IRPReferenceDataError](#class-irpreferencedataerror)
@@ -92,7 +93,12 @@ Retries are built into the underlying session — 5 attempts with exponential ba
 
 **Auth/config:**
 
-Credentials and the API base URL come from three environment variables, read once in ``Client.__init__`` (which raises if any is missing).
+The API base URL (``RISK_MODELER_BASE_URL``) and resource group (``RISK_MODELER_RESOURCE_GROUP_ID``) are always required. Two authentication strategies are supported, selected automatically in ``Client.__init__`` from which environment variables are populated:
+
+- **API key** (default / preserves existing behavior): if ``RISK_MODELER_API_KEY`` is set, it is sent verbatim in the ``Authorization`` header.
+- **Bearer login**: if the API key is absent but ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and ``RISK_MODELER_PASSWORD`` are all set, the client logs in at construction to obtain a short-lived (1-hour) bearer token and sends ``Authorization: Bearer {accessToken}``.
+
+The API key takes precedence when both option sets are present. Bearer tokens are refreshed reactively: a ``401`` triggers a single re-login with the stored credentials and one retry of the request. ``__init__`` raises if neither complete option set is configured.
 
 ### `class Client`
 
@@ -106,13 +112,32 @@ def __init__(self)
 
 Initialize API client with credentials from environment.
 
+Two authentication strategies are supported, selected automatically
+from which environment variables are populated (see the module
+docstring for details):
+
+    - **API key** (default): ``RISK_MODELER_API_KEY`` set.
+    - **Bearer login**: API key absent and all of
+      ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and
+      ``RISK_MODELER_PASSWORD`` set. The client logs in immediately to
+      fetch the initial token.
+
+The API key takes precedence when both option sets are present. The
+chosen strategy is exposed as ``self.auth_mode`` (``'apikey'`` or
+``'bearer'``); it is set once here and should be treated as read-only.
+
 **Environment variables:**
-> RISK_MODELER_BASE_URL: API base URL
-> RISK_MODELER_API_KEY: API authentication key
-> RISK_MODELER_RESOURCE_GROUP_ID: Resource group ID
+> RISK_MODELER_BASE_URL: API base URL (always required)
+> RISK_MODELER_RESOURCE_GROUP_ID: Resource group ID (always required)
+> RISK_MODELER_API_KEY: API authentication key (API-key strategy)
+> RISK_MODELER_TENANT_NAME: Tenant name (bearer strategy)
+> RISK_MODELER_USERNAME: Username (bearer strategy)
+> RISK_MODELER_PASSWORD: Password (bearer strategy)
 
 **Raises:**
- - **IRPAPIError:**  If any required environment variable is missing
+ - **IRPAPIError:**  If required configuration is missing or no complete
+   authentication strategy is configured
+ - **IRPAuthenticationError:**  If the initial bearer login fails
 
 #### `request`
 
@@ -3508,6 +3533,14 @@ Base exception for all IRP integration errors.
 API request or response errors.
 
 Raised when HTTP requests fail, responses are malformed, or API returns unexpected status codes.
+
+### `class IRPAuthenticationError`
+
+*Bases:* `IRPIntegrationError`
+
+Bearer-token authentication errors.
+
+Raised when bearer-token login or token refresh fails (bad credentials, missing access token in the response, etc.).
 
 ### `class IRPValidationError`
 

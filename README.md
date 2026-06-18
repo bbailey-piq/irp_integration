@@ -57,8 +57,13 @@ The library reads configuration from environment variables:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `RISK_MODELER_BASE_URL` | Yes | Moody's Risk Modeler API base URL |
-| `RISK_MODELER_API_KEY` | Yes | API authentication key |
 | `RISK_MODELER_RESOURCE_GROUP_ID` | Yes | Resource group ID for your organization |
+| `RISK_MODELER_API_KEY` | Auth | API authentication key (API-key strategy) |
+| `RISK_MODELER_TENANT_NAME` | Auth | Tenant name (bearer-login strategy) |
+| `RISK_MODELER_USERNAME` | Auth | Username (bearer-login strategy) |
+| `RISK_MODELER_PASSWORD` | Auth | Password (bearer-login strategy) |
+
+See [Authentication](#authentication) for how a strategy is selected.
 
 You can set these in your shell, or use a `.env` file with [python-dotenv](https://pypi.org/project/python-dotenv/):
 
@@ -69,6 +74,29 @@ load_dotenv()
 from irp_integration import IRPClient
 client = IRPClient()
 ```
+
+### Authentication
+
+`RISK_MODELER_BASE_URL` and `RISK_MODELER_RESOURCE_GROUP_ID` are always required.
+On top of those, the client supports two authentication strategies and selects
+one automatically based on which environment variables are populated:
+
+- **API key** (default, preserves existing behavior): set `RISK_MODELER_API_KEY`.
+  It is sent verbatim in the `Authorization` header.
+- **Bearer login**: leave `RISK_MODELER_API_KEY` unset and set all three of
+  `RISK_MODELER_TENANT_NAME`, `RISK_MODELER_USERNAME`, and `RISK_MODELER_PASSWORD`.
+  The client logs in at construction to obtain a short-lived (1-hour) bearer token
+  and sends `Authorization: Bearer {accessToken}`.
+
+**Precedence:** if `RISK_MODELER_API_KEY` is set it always wins, even when the
+login variables are also present. Bearer login is used only when the API key is
+absent and the full login triple is configured. If neither complete set is
+configured, `IRPClient()` raises an error naming both options.
+
+**Token refresh** is reactive: when a request returns `401` in bearer mode, the
+client re-logs in with the stored credentials and retries the request once. If
+the retry still fails, the error propagates. There is no proactive expiry
+tracking.
 
 ### Data Bridge Configuration
 
