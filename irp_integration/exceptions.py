@@ -21,6 +21,16 @@ class IRPAPIError(IRPIntegrationError):
     pass
 
 
+class IRPAuthenticationError(IRPIntegrationError):
+    """
+    Bearer-token authentication errors.
+
+    Raised when bearer-token login or token refresh fails (bad
+    credentials, missing access token in the response, etc.).
+    """
+    pass
+
+
 class IRPValidationError(IRPIntegrationError):
     """
     Input validation errors.

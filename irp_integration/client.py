@@ -27,8 +27,24 @@ Retries:
     add another retry layer on top of these calls.
 
 Auth/config:
-    Credentials and the API base URL come from three environment variables,
-    read once in ``Client.__init__`` (which raises if any is missing).
+    The API base URL (``RISK_MODELER_BASE_URL``) and resource group
+    (``RISK_MODELER_RESOURCE_GROUP_ID``) are always required. Two
+    authentication strategies are supported, selected automatically in
+    ``Client.__init__`` from which environment variables are populated:
+
+        - **API key** (default / preserves existing behavior): if
+          ``RISK_MODELER_API_KEY`` is set, it is sent verbatim in the
+          ``Authorization`` header.
+        - **Bearer login**: if the API key is absent but
+          ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and
+          ``RISK_MODELER_PASSWORD`` are all set, the client logs in at
+          construction to obtain a short-lived (1-hour) bearer token and
+          sends ``Authorization: Bearer {accessToken}``.
+
+    The API key takes precedence when both option sets are present.
+    Bearer tokens are refreshed reactively: a ``401`` triggers a single
+    re-login with the stored credentials and one retry of the request.
+    ``__init__`` raises if neither complete option set is configured.
 """
 
 import json
@@ -40,7 +56,8 @@ from typing import Dict, List, Any, Optional, Union
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from .constants import  GET_WORKFLOWS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, GET_WORKFLOW_BY_ID
-from .exceptions import IRPAPIError, IRPJobError, IRPWorkflowError
+from .constants import LOGIN_IMPLICIT
+from .exceptions import IRPAPIError, IRPAuthenticationError, IRPJobError, IRPWorkflowError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import get_location_header
 
@@ -54,31 +71,63 @@ class Client:
         """
         Initialize API client with credentials from environment.
 
+        Two authentication strategies are supported, selected automatically
+        from which environment variables are populated (see the module
+        docstring for details):
+
+            - **API key** (default): ``RISK_MODELER_API_KEY`` set.
+            - **Bearer login**: API key absent and all of
+              ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and
+              ``RISK_MODELER_PASSWORD`` set. The client logs in immediately to
+              fetch the initial token.
+
+        The API key takes precedence when both option sets are present. The
+        chosen strategy is exposed as ``self.auth_mode`` (``'apikey'`` or
+        ``'bearer'``); it is set once here and should be treated as read-only.
+
         Environment variables:
-            RISK_MODELER_BASE_URL: API base URL
-            RISK_MODELER_API_KEY: API authentication key
-            RISK_MODELER_RESOURCE_GROUP_ID: Resource group ID
+            RISK_MODELER_BASE_URL: API base URL (always required)
+            RISK_MODELER_RESOURCE_GROUP_ID: Resource group ID (always required)
+            RISK_MODELER_API_KEY: API authentication key (API-key strategy)
+            RISK_MODELER_TENANT_NAME: Tenant name (bearer strategy)
+            RISK_MODELER_USERNAME: Username (bearer strategy)
+            RISK_MODELER_PASSWORD: Password (bearer strategy)
 
         Raises:
-            IRPAPIError: If any required environment variable is missing
+            IRPAPIError: If required configuration is missing or no complete
+                authentication strategy is configured
+            IRPAuthenticationError: If the initial bearer login fails
         """
         base_url = os.environ.get('RISK_MODELER_BASE_URL')
-        api_key = os.environ.get('RISK_MODELER_API_KEY')
         resource_group_id = os.environ.get('RISK_MODELER_RESOURCE_GROUP_ID')
+        api_key = os.environ.get('RISK_MODELER_API_KEY')
+        tenant_name = os.environ.get('RISK_MODELER_TENANT_NAME')
+        username = os.environ.get('RISK_MODELER_USERNAME')
+        password = os.environ.get('RISK_MODELER_PASSWORD')
 
         if not base_url:
             raise IRPAPIError("Missing required environment variable: RISK_MODELER_BASE_URL")
-        if not api_key:
-            raise IRPAPIError("Missing required environment variable: RISK_MODELER_API_KEY")
         if not resource_group_id:
             raise IRPAPIError("Missing required environment variable: RISK_MODELER_RESOURCE_GROUP_ID")
+
+        if api_key:
+            self.auth_mode = 'apikey'
+        elif tenant_name and username and password:
+            self.auth_mode = 'bearer'
+            self._tenant_name = tenant_name
+            self._username = username
+            self._password = password
+        else:
+            raise IRPAPIError(
+                "No authentication strategy configured: set RISK_MODELER_API_KEY, "
+                "or RISK_MODELER_TENANT_NAME + RISK_MODELER_USERNAME + RISK_MODELER_PASSWORD"
+            )
 
         self.base_url = base_url
         self.timeout = 200
 
         session = requests.Session()
         session.headers.update({
-            'Authorization': api_key,
             'x-rms-resource-group-id': resource_group_id,
         })
 
@@ -92,6 +141,75 @@ class Client:
         session.mount("https://", HTTPAdapter(max_retries=retry))
         session.mount("http://", HTTPAdapter(max_retries=retry))
         self.session = session
+
+        if self.auth_mode == 'apikey':
+            session.headers['Authorization'] = api_key
+        else:
+            # Fail fast at construction, matching the API-key strategy which
+            # validates its credential up front.
+            self._login()
+
+    def _login(self) -> None:
+        """
+        Log in with stored bearer credentials and set the session token.
+
+        POSTs to ``LOGIN_IMPLICIT`` with the tenant/username/password and
+        installs the returned access token as the session ``Authorization``
+        header. Issued directly via ``requests.post`` (not ``self.request``)
+        so it carries no stale ``Authorization`` header and never recurses
+        through the reactive 401-retry logic.
+
+        Raises:
+            IRPAuthenticationError: If login fails or the response is missing
+                an access token. Server messages are truncated and credentials
+                are never logged.
+        """
+        logger.info("Logging in for bearer token (tenant=%s)", self._tenant_name)
+        try:
+            response = requests.post(
+                f"{self.base_url}{LOGIN_IMPLICIT}",
+                json={
+                    "tenantName": self._tenant_name,
+                    "username": self._username,
+                    "password": self._password,
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
+            )
+        except requests.RequestException as e:
+            logger.error("Bearer login request error: %s", e)
+            raise IRPAuthenticationError(f"Bearer login request error: {e}") from e
+
+        if not response.ok:
+            # Extract only a safe error-message field — never log the body.
+            safe_msg = ""
+            try:
+                body = response.json()
+                server_msg = body.get("message") or body.get("error") or ""
+                if server_msg:
+                    safe_msg = f" | server: {str(server_msg)[:200]}"
+            except Exception:
+                pass
+            logger.error("Bearer login failed (status %s)%s", response.status_code, safe_msg)
+            raise IRPAuthenticationError(
+                f"Bearer login failed (status {response.status_code}){safe_msg}"
+            )
+
+        try:
+            body = response.json()
+        except Exception as e:
+            raise IRPAuthenticationError("Bearer login returned a non-JSON response") from e
+
+        access_token = body.get("accessToken")
+        if not access_token:
+            raise IRPAuthenticationError("Bearer login response missing 'accessToken'")
+
+        token_type = body.get("tokenType") or "Bearer"
+        # Stashed only as a hook for a possible future proactive-refresh upgrade.
+        self._refresh_token = body.get("refreshToken")
+        self._expires_in = body.get("expiresIn")
+        self.session.headers['Authorization'] = f"{token_type} {access_token}"
+        logger.info("Bearer login succeeded; token installed")
 
     def request(
         self,
@@ -138,38 +256,47 @@ class Client:
 
         logger.debug("%s %s", method, url)
 
-        try:
-            response = self.session.request(
-                method=method,
-                url=url,
-                params=params,
-                json=json,
-                headers=headers,
-                timeout=timeout or self.timeout,
-                stream=stream,
-            )
-            response.raise_for_status()
-        except requests.HTTPError as e:
-            status_code = response.status_code
-            # Extract only a safe error-message field — never log the full body
-            safe_msg = ""
+        # Allow at most one reactive re-login on a 401 in bearer mode.
+        auth_retried = False
+        while True:
             try:
-                body = response.json()
-                server_msg = body.get("message") or body.get("error") or ""
-                if server_msg:
-                    safe_msg = f" | server: {str(server_msg)[:200]}"
-            except Exception:
-                pass
-            logger.error(
-                "HTTP request failed: %s %s (status %s)%s",
-                method, url, status_code, safe_msg,
-            )
-            raise IRPAPIError(
-                f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}"
-            ) from e
-        except requests.RequestException as e:
-            logger.error("Request error: %s %s — %s", method, url, e)
-            raise IRPAPIError(f"Request error: {e}") from e
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json,
+                    headers=headers,
+                    timeout=timeout or self.timeout,
+                    stream=stream,
+                )
+                response.raise_for_status()
+            except requests.HTTPError as e:
+                status_code = response.status_code
+                if status_code == 401 and self.auth_mode == 'bearer' and not auth_retried:
+                    logger.info("Received 401; re-logging in and retrying once: %s %s", method, url)
+                    auth_retried = True
+                    self._login()
+                    continue
+                # Extract only a safe error-message field — never log the full body
+                safe_msg = ""
+                try:
+                    body = response.json()
+                    server_msg = body.get("message") or body.get("error") or ""
+                    if server_msg:
+                        safe_msg = f" | server: {str(server_msg)[:200]}"
+                except Exception:
+                    pass
+                logger.error(
+                    "HTTP request failed: %s %s (status %s)%s",
+                    method, url, status_code, safe_msg,
+                )
+                raise IRPAPIError(
+                    f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}"
+                ) from e
+            except requests.RequestException as e:
+                logger.error("Request error: %s %s — %s", method, url, e)
+                raise IRPAPIError(f"Request error: {e}") from e
+            break
 
         logger.debug("%s %s — %s", method, url, response.status_code)
         return response
