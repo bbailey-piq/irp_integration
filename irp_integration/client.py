@@ -197,8 +197,7 @@ class Client:
                     "username": self._username,
                     "password": self._password,
                 },
-                # Drop any stale token for this request; keep session retries.
-                headers={"Content-Type": "application/json", "Authorization": None},
+                headers={"Content-Type": "application/json"},
                 timeout=self.timeout,
             )
         except requests.RequestException as e:
