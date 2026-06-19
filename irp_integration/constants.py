@@ -13,6 +13,9 @@ Defines:
       and ``PERSPECTIVE_CODES``.
 """
 
+# Auth endpoints
+LOGIN_IMPLICIT = '/sml/auth/v1/login/implicit'
+
 # Workflow endpoints
 GET_WORKFLOWS = '/riskmodeler/v1/workflows'
 GET_WORKFLOW_BY_ID = '/riskmodeler/v1/workflows/{workflow_id}'
