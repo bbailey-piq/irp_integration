@@ -142,12 +142,34 @@ class Client:
         session.mount("http://", HTTPAdapter(max_retries=retry))
         self.session = session
 
-        if self.auth_mode == 'apikey':
+        if api_key:
             session.headers['Authorization'] = api_key
         else:
-            # Fail fast at construction, matching the API-key strategy which
-            # validates its credential up front.
             self._login()
+
+    @staticmethod
+    def _safe_server_msg(response: requests.Response) -> str:
+        """
+        Extract a safe, truncated server message from an error response.
+
+        Pulls the ``message`` or ``error`` field from the JSON body and caps it
+        at 200 characters, returning a string like `` | server: <message>`` (or
+        ``""`` if none is available). The full body is never returned or logged.
+
+        Args:
+            response: The error response to inspect
+
+        Returns:
+            A short, safe `` | server: ...`` suffix, or an empty string
+        """
+        try:
+            body = response.json()
+            server_msg = body.get("message") or body.get("error") or ""
+            if server_msg:
+                return f" | server: {str(server_msg)[:200]}"
+        except Exception:
+            pass
+        return ""
 
     def _login(self) -> None:
         """
@@ -155,9 +177,11 @@ class Client:
 
         POSTs to ``LOGIN_IMPLICIT`` with the tenant/username/password and
         installs the returned access token as the session ``Authorization``
-        header. Issued directly via ``requests.post`` (not ``self.request``)
-        so it carries no stale ``Authorization`` header and never recurses
-        through the reactive 401-retry logic.
+        header. Issued through the session (so it shares the retry/backoff
+        adapter and connection pool) but with ``Authorization`` explicitly
+        overridden to ``None`` for this request, so it carries no stale token.
+        Callers invoke it directly rather than via ``self.request`` to avoid
+        recursing through the reactive 401-retry logic.
 
         Raises:
             IRPAuthenticationError: If login fails or the response is missing
@@ -166,14 +190,15 @@ class Client:
         """
         logger.info("Logging in for bearer token (tenant=%s)", self._tenant_name)
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}{LOGIN_IMPLICIT}",
                 json={
                     "tenantName": self._tenant_name,
                     "username": self._username,
                     "password": self._password,
                 },
-                headers={"Content-Type": "application/json"},
+                # Drop any stale token for this request; keep session retries.
+                headers={"Content-Type": "application/json", "Authorization": None},
                 timeout=self.timeout,
             )
         except requests.RequestException as e:
@@ -181,15 +206,7 @@ class Client:
             raise IRPAuthenticationError(f"Bearer login request error: {e}") from e
 
         if not response.ok:
-            # Extract only a safe error-message field — never log the body.
-            safe_msg = ""
-            try:
-                body = response.json()
-                server_msg = body.get("message") or body.get("error") or ""
-                if server_msg:
-                    safe_msg = f" | server: {str(server_msg)[:200]}"
-            except Exception:
-                pass
+            safe_msg = self._safe_server_msg(response)
             logger.error("Bearer login failed (status %s)%s", response.status_code, safe_msg)
             raise IRPAuthenticationError(
                 f"Bearer login failed (status {response.status_code}){safe_msg}"
@@ -242,7 +259,9 @@ class Client:
             HTTP response object
 
         Raises:
-            IRPAPIError: If HTTP request fails
+            IRPAPIError: If the HTTP request fails
+            IRPAuthenticationError: In bearer mode, if a ``401`` persists after
+                a re-login and retry
         """
         validate_non_empty_string(method, "method")
 
@@ -277,19 +296,18 @@ class Client:
                     auth_retried = True
                     self._login()
                     continue
-                # Extract only a safe error-message field — never log the full body
-                safe_msg = ""
-                try:
-                    body = response.json()
-                    server_msg = body.get("message") or body.get("error") or ""
-                    if server_msg:
-                        safe_msg = f" | server: {str(server_msg)[:200]}"
-                except Exception:
-                    pass
+                safe_msg = self._safe_server_msg(response)
                 logger.error(
                     "HTTP request failed: %s %s (status %s)%s",
                     method, url, status_code, safe_msg,
                 )
+                if status_code == 401 and self.auth_mode == 'bearer':
+                    # Bearer 401 that survived a re-login + retry: this is an
+                    # authentication failure, so surface it as one.
+                    raise IRPAuthenticationError(
+                        f"Bearer authentication failed after re-login: {method} {url} "
+                        f"(status {status_code}){safe_msg}"
+                    ) from e
                 raise IRPAPIError(
                     f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}"
                 ) from e

@@ -174,7 +174,9 @@ Make HTTP request to API.
 > HTTP response object
 
 **Raises:**
- - **IRPAPIError:**  If HTTP request fails
+ - **IRPAPIError:**  If the HTTP request fails
+ - **IRPAuthenticationError:**  In bearer mode, if a ``401`` persists after
+   a re-login and retry
 
 #### `get_workflow`
 
