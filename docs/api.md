@@ -328,22 +328,13 @@ Manager for EDM (Exposure Data Management) operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    portfolio_manager: Optional[Any] = None,
-    analysis_manager: Optional[Any] = None,
-    risk_data_job_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize EDM manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
- - **portfolio_manager:**  Optional PortfolioManager instance
- - **analysis_manager:**  Optional AnalysisManager instance
- - **risk_data_job_manager:**  Optional RiskDataJobManager instance
+ - **irp:**  Owning IRP client instance
 
 #### `validate_unique_edms`
 
@@ -657,18 +648,13 @@ Manager for portfolio operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    edm_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize portfolio manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
- - **edm_manager:**  Optional EDMManager instance
+ - **irp:**  Owning IRP client instance
 
 #### `get_portfolio_by_id`
 
@@ -957,20 +943,13 @@ Manager for MRI import operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    edm_manager: Optional[Any] = None,
-    portfolio_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize MRI Import Manager.
 
 **Arguments:**
- - **client:**  Client instance for API requests
- - **edm_manager:**  Optional EDMManager instance
- - **portfolio_manager:**  Optional PortfolioManager instance
+ - **irp:**  Owning IRP client instance
 
 #### `submit_mri_import_job`
 
@@ -1025,20 +1004,13 @@ Manager for treaty operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    edm_manager=None,
-    reference_data_manager=None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize Treaty Manager.
 
 **Arguments:**
- - **client:**  Client instance for API requests
- - **edm_manager:**  Optional EDMManager instance (lazy-loaded if None)
- - **reference_data_manager:**  Optional ReferenceDataManager instance (lazy-loaded if None)
+ - **irp:**  Owning IRP client instance
 
 #### `search_treaties`
 
@@ -1205,24 +1177,13 @@ Manager for analysis operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    reference_data_manager: Optional[Any] = None,
-    treaty_manager: Optional[Any] = None,
-    edm_manager: Optional[Any] = None,
-    portfolio_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize analysis manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
- - **reference_data_manager:**  Optional ReferenceDataManager instance
- - **treaty_manager:**  Optional TreatyManager instance
- - **edm_manager:**  Optional EDMManager instance
- - **portfolio_manager:**  Optional PortfolioManager instance
+ - **irp:**  Owning IRP client instance
 
 #### `get_analysis_by_id`
 
@@ -1901,20 +1862,13 @@ Manager for RDM export operations.
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    analysis_manager: Optional[Any] = None,
-    edm_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize RDM manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
- - **analysis_manager:**  Optional AnalysisManager instance
- - **edm_manager:**  Optional EDMManager instance
+ - **irp:**  Owning IRP client instance
 
 #### `export_analyses_to_rdm`
 
@@ -2275,13 +2229,13 @@ Manager for risk data job status tracking and polling.
 #### `__init__`
 
 ```python
-def __init__(self, client: irp_integration.client.Client)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize risk data job manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
+ - **irp:**  Owning IRP client instance
 
 #### `get_risk_data_job`
 
@@ -2396,22 +2350,13 @@ Manager for platform import job operations (EDM, RDM, MRI).
 #### `__init__`
 
 ```python
-def __init__(
-    self,
-    client: irp_integration.client.Client,
-    edm_manager: Optional[Any] = None,
-    rdm_manager: Optional[Any] = None,
-    mri_manager: Optional[Any] = None
-)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize ImportJobManager.
 
 **Arguments:**
- - **client:**  IRP API client instance
- - **edm_manager:**  Optional EDMManager instance for EDM import routing
- - **rdm_manager:**  Optional RDMManager instance for RDM import routing
- - **mri_manager:**  Optional MRIImportManager instance for MRI import routing
+ - **irp:**  Owning IRP client instance
 
 #### `submit_job`
 
@@ -2509,13 +2454,13 @@ Manager for platform export job operations.
 #### `__init__`
 
 ```python
-def __init__(self, client: irp_integration.client.Client)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize ExportJobManager.
 
 **Arguments:**
- - **client:**  IRP API client instance
+ - **irp:**  Owning IRP client instance
 
 #### `get_export_job`
 
@@ -2776,13 +2721,13 @@ Manager for reference data operations.
 #### `__init__`
 
 ```python
-def __init__(self, client: irp_integration.client.Client)
+def __init__(self, irp: irp_integration.IRPClient)
 ```
 
 Initialize reference data manager.
 
 **Arguments:**
- - **client:**  IRP API client instance
+ - **irp:**  Owning IRP client instance
 
 #### `get_model_profiles`
 

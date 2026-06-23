@@ -6,8 +6,7 @@ model profiles, output profiles, event rate schemes, currencies, and tags.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
-from .client import Client
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from .constants import (
     SEARCH_CURRENCIES, SEARCH_CURRENCY_SCHEME_VINTAGES, GET_TAGS, CREATE_TAG,
     GET_MODEL_PROFILES, GET_OUTPUT_PROFILES, GET_EVENT_RATE_SCHEME,
@@ -16,6 +15,9 @@ from .constants import (
 from .exceptions import IRPAPIError
 from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int
 from .utils import extract_id_from_location_header
+
+if TYPE_CHECKING:
+    from . import IRPClient
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +66,15 @@ def _build_default_analysis_currency_dict() -> Dict[str, str]:
 class ReferenceDataManager:
     """Manager for reference data operations."""
 
-    def __init__(self, client: Client) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize reference data manager.
 
         Args:
-            client: IRP API client instance
+            irp: Owning IRP client instance
         """
-        self.client = client
+        self._irp = irp
+        self.client = irp.client
 
 
     def get_model_profiles(self) -> Dict[str, Any]:

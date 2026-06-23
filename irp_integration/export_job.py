@@ -8,15 +8,17 @@ Uses the /platform/export/v1/jobs endpoint.
 import logging
 import os
 import time
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 
 import requests
 
-from .client import Client
 from .constants import GET_EXPORT_JOB, WORKFLOW_COMPLETED_STATUSES
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_positive_int, validate_non_empty_string
+
+if TYPE_CHECKING:
+    from . import IRPClient
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +26,15 @@ logger = logging.getLogger(__name__)
 class ExportJobManager:
     """Manager for platform export job operations."""
 
-    def __init__(self, client: Client) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize ExportJobManager.
 
         Args:
-            client: IRP API client instance
+            irp: Owning IRP client instance
         """
-        self.client = client
+        self._irp = irp
+        self.client = irp.client
 
     def get_export_job(self, job_id: int) -> Dict[str, Any]:
         """

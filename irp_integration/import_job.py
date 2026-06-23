@@ -9,12 +9,12 @@ import logging
 import time
 from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 
-from .client import Client
 from .constants import GET_IMPORT_JOB, WORKFLOW_COMPLETED_STATUSES
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
 from .validators import validate_positive_int, validate_non_empty_string
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .edm import EDMManager
     from .rdm import RDMManager
     from .mri_import import MRIImportManager
@@ -27,50 +27,30 @@ class ImportJobManager:
 
     VALID_IMPORT_TYPES = {"EDM", "RDM", "MRI"}
 
-    def __init__(
-        self,
-        client: Client,
-        edm_manager: Optional[Any] = None,
-        rdm_manager: Optional[Any] = None,
-        mri_manager: Optional[Any] = None
-    ) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize ImportJobManager.
 
         Args:
-            client: IRP API client instance
-            edm_manager: Optional EDMManager instance for EDM import routing
-            rdm_manager: Optional RDMManager instance for RDM import routing
-            mri_manager: Optional MRIImportManager instance for MRI import routing
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._edm_manager = edm_manager
-        self._rdm_manager = rdm_manager
-        self._mri_manager = mri_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-loaded EDM manager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
 
     @property
     def rdm_manager(self) -> "RDMManager":
-        """Lazy-loaded RDM manager to avoid circular imports."""
-        if self._rdm_manager is None:
-            from .rdm import RDMManager
-            self._rdm_manager = RDMManager(self.client)
-        return self._rdm_manager
+        """Return the owning client's RDM manager."""
+        return self._irp.rdm
     
     @property
     def mri_manager(self) -> "MRIImportManager":
-        """Lazy-loaded MRI manager to avoid circular imports."""
-        if self._mri_manager is None:
-            from .mri_import import MRIImportManager
-            self._mri_manager = MRIImportManager(self.client)
-        return self._mri_manager
+        """Return the owning client's MRI import manager."""
+        return self._irp.mri_import
 
     def submit_job(self, import_type: str, **kwargs) -> Tuple[int, Dict[str, Any]]:
         """
