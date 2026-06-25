@@ -8,11 +8,13 @@ platform risk data jobs via the unified /platform/riskdata/v1/jobs endpoint.
 import json
 import logging
 import time
-from typing import Any, Dict, List
-from .client import Client
+from typing import Any, Dict, List, TYPE_CHECKING
 from .constants import GET_RISK_DATA_JOB_BY_ID, SEARCH_RISK_DATA_JOBS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_positive_int
+
+if TYPE_CHECKING:
+    from . import IRPClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +22,14 @@ logger = logging.getLogger(__name__)
 class RiskDataJobManager:
     """Manager for risk data job status tracking and polling."""
 
-    def __init__(self, client: Client) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """Initialize risk data job manager.
 
         Args:
-            client: IRP API client instance
+            irp: Owning IRP client instance
         """
-        self.client = client
+        self._irp = irp
+        self.client = irp.client
 
 
     def get_risk_data_job(self, job_id: int) -> Dict[str, Any]:

@@ -7,7 +7,6 @@ and Line of Business (LOB) assignments.
 
 import logging
 from typing import Dict, List, Any, Tuple, TYPE_CHECKING
-from .client import Client
 from .constants import (
     CREATE_TREATY,
     SEARCH_TREATIES,
@@ -21,6 +20,7 @@ from .validators import validate_list_not_empty, validate_non_empty_string, vali
 from .utils import extract_id_from_location_header
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .edm import EDMManager
     from .reference_data import ReferenceDataManager
 
@@ -30,34 +30,25 @@ logger = logging.getLogger(__name__)
 class TreatyManager:
     """Manager for treaty operations."""
 
-    def __init__(self, client: Client, edm_manager=None, reference_data_manager=None):
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize Treaty Manager.
 
         Args:
-            client: Client instance for API requests
-            edm_manager: Optional EDMManager instance (lazy-loaded if None)
-            reference_data_manager: Optional ReferenceDataManager instance (lazy-loaded if None)
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._edm_manager = edm_manager
-        self._reference_data_manager = reference_data_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-load EDMManager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
 
     @property
     def reference_data_manager(self) -> "ReferenceDataManager":
-        """Lazy-load ReferenceDataManager to avoid circular imports."""
-        if self._reference_data_manager is None:
-            from .reference_data import ReferenceDataManager
-            self._reference_data_manager = ReferenceDataManager(self.client)
-        return self._reference_data_manager
+        """Return the owning client's reference data manager."""
+        return self._irp.reference_data
 
 
     def search_treaties(self, exposure_id: int, filter: str = '', limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:

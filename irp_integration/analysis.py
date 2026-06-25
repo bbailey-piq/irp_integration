@@ -8,7 +8,6 @@ import json
 import logging
 import time
 from typing import Dict, List, Any, Optional, Set, Tuple, TYPE_CHECKING
-from .client import Client
 from .constants import (
     CREATE_ANALYSIS_JOB, DELETE_ANALYSIS, GET_ANALYSIS_GROUPING_JOB,
     GET_ANALYSIS_JOB, GET_ANALYSIS_RESULT, CREATE_ANALYSIS_GROUP,
@@ -22,6 +21,7 @@ from .validators import validate_non_empty_string, validate_positive_int, valida
 from .utils import extract_id_from_location_header
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .reference_data import ReferenceDataManager
     from .treaty import TreatyManager
     from .edm import EDMManager
@@ -32,61 +32,35 @@ logger = logging.getLogger(__name__)
 class AnalysisManager:
     """Manager for analysis operations."""
 
-    def __init__(
-            self, 
-            client: Client, 
-            reference_data_manager: Optional[Any] = None, 
-            treaty_manager: Optional[Any] = None,
-            edm_manager: Optional[Any] = None,
-            portfolio_manager: Optional[Any] = None
-    ) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize analysis manager.
 
         Args:
-            client: IRP API client instance
-            reference_data_manager: Optional ReferenceDataManager instance
-            treaty_manager: Optional TreatyManager instance
-            edm_manager: Optional EDMManager instance
-            portfolio_manager: Optional PortfolioManager instance
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._reference_data_manager = reference_data_manager
-        self._treaty_manager = treaty_manager
-        self._edm_manager = edm_manager
-        self._portfolio_manager = portfolio_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def reference_data_manager(self) -> "ReferenceDataManager":
-        """Lazy-loaded reference data manager to avoid circular imports."""
-        if self._reference_data_manager is None:
-            from .reference_data import ReferenceDataManager
-            self._reference_data_manager = ReferenceDataManager(self.client)
-        return self._reference_data_manager
+        """Return the owning client's reference data manager."""
+        return self._irp.reference_data
     
     @property
     def treaty_manager(self) -> "TreatyManager":
-        """Lazy-loaded treaty manager to avoid circular imports."""
-        if self._treaty_manager is None:
-            from .treaty import TreatyManager
-            self._treaty_manager = TreatyManager(self.client)
-        return self._treaty_manager
+        """Return the owning client's treaty manager."""
+        return self._irp.treaty
     
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-loaded edm manager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
     
     @property
     def portfolio_manager(self) -> "PortfolioManager":
-        """Lazy-loaded portfolio manager to avoid circular imports."""
-        if self._portfolio_manager is None:
-            from .portfolio import PortfolioManager
-            self._portfolio_manager = PortfolioManager(self.client)
-        return self._portfolio_manager
+        """Return the owning client's portfolio manager."""
+        return self._irp.portfolio
 
 
     def get_analysis_by_id(self, analysis_id: int) -> Dict[str, Any]:

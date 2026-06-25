@@ -56,16 +56,16 @@ class IRPClient:
     def __init__(self) -> None:
         """Initialize the client and instantiate every manager."""
         self._client = Client()
-        self.risk_data_job = RiskDataJobManager(self._client)
-        self.edm = EDMManager(self._client)
-        self.portfolio = PortfolioManager(self._client)
-        self.mri_import = MRIImportManager(self._client)
-        self.analysis = AnalysisManager(self._client)
-        self.treaty = TreatyManager(self._client)
-        self.reference_data = ReferenceDataManager(self._client)
-        self.rdm = RDMManager(self._client)
-        self.import_job = ImportJobManager(self._client)
-        self.export_job = ExportJobManager(self._client)
+        self.risk_data_job = RiskDataJobManager(self)
+        self.reference_data = ReferenceDataManager(self)
+        self.export_job = ExportJobManager(self)
+        self.edm = EDMManager(self)
+        self.portfolio = PortfolioManager(self)
+        self.mri_import = MRIImportManager(self)
+        self.analysis = AnalysisManager(self)
+        self.treaty = TreatyManager(self)
+        self.rdm = RDMManager(self)
+        self.import_job = ImportJobManager(self)
         if DataBridgeManager is not None:
             self.databridge = DataBridgeManager()
 

@@ -50,7 +50,7 @@ MODULE_ORDER = [
 def discover_modules() -> list:
     """Return submodule short names in MODULE_ORDER, then any leftovers."""
     pkg = importlib.import_module(PACKAGE)
-    found = [mi.name for mi in pkgutil.iter_modules(pkg.__path__)]
+    found = [mi.name for mi in pkgutil.iter_modules(pkg.__path__) if not mi.name.startswith("_")]
     ordered = []
     for name in MODULE_ORDER:
         if name in found and name not in ordered:

@@ -8,8 +8,7 @@ associated data retrieval (cedants, LOBs).
 import json
 import logging
 import time
-from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
-from .client import Client
+from typing import Dict, Any, List, Tuple, TYPE_CHECKING
 from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
@@ -17,6 +16,7 @@ from .utils import extract_id_from_location_header
 from .s3 import S3Manager
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .portfolio import PortfolioManager
     from .analysis import AnalysisManager
     from .risk_data_job import RiskDataJobManager
@@ -27,51 +27,31 @@ logger = logging.getLogger(__name__)
 class EDMManager:
     """Manager for EDM (Exposure Data Management) operations."""
 
-    def __init__(
-            self, 
-            client: Client, 
-            portfolio_manager: Optional[Any] = None, 
-            analysis_manager: Optional[Any] = None,
-            risk_data_job_manager: Optional[Any] = None
-    ) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize EDM manager.
 
         Args:
-            client: IRP API client instance
-            portfolio_manager: Optional PortfolioManager instance
-            analysis_manager: Optional AnalysisManager instance
-            risk_data_job_manager: Optional RiskDataJobManager instance
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._portfolio_manager = portfolio_manager
-        self._analysis_manager = analysis_manager
-        self._risk_data_job_manager = risk_data_job_manager
+        self._irp = irp
+        self.client = irp.client
 
 
     @property
     def portfolio_manager(self) -> "PortfolioManager":
-        """Lazy-loaded portfolio manager to avoid circular imports."""
-        if self._portfolio_manager is None:
-            from .portfolio import PortfolioManager
-            self._portfolio_manager = PortfolioManager(self.client)
-        return self._portfolio_manager
+        """Return the owning client's portfolio manager."""
+        return self._irp.portfolio
     
     @property
     def analysis_manager(self) -> "AnalysisManager":
-        """Lazy-loaded analysis manager to avoid circular imports."""
-        if self._analysis_manager is None:
-            from .analysis import AnalysisManager
-            self._analysis_manager = AnalysisManager(self.client)
-        return self._analysis_manager
+        """Return the owning client's analysis manager."""
+        return self._irp.analysis
     
     @property
     def risk_data_job_manager(self) -> "RiskDataJobManager":
-        """Lazy-loaded risk data job manager to avoid circular imports."""
-        if self._risk_data_job_manager is None:
-            from .risk_data_job import RiskDataJobManager
-            self._risk_data_job_manager = RiskDataJobManager(self.client)
-        return self._risk_data_job_manager
+        """Return the owning client's risk data job manager."""
+        return self._irp.risk_data_job
 
 
     def validate_unique_edms(self, edm_names: List[str]) -> None:

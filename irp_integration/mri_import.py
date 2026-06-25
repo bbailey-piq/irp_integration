@@ -10,7 +10,6 @@ import logging
 import os
 from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
 
-from .client import Client
 from .constants import CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError
 from .validators import validate_non_empty_string, validate_file_exists
@@ -18,6 +17,7 @@ from .s3 import S3Manager
 from .utils import extract_id_from_location_header
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .edm import EDMManager
     from .portfolio import PortfolioManager
 
@@ -27,34 +27,25 @@ logger = logging.getLogger(__name__)
 class MRIImportManager:
     """Manager for MRI import operations."""
 
-    def __init__(self, client: Client, edm_manager: Optional[Any] = None, portfolio_manager: Optional[Any] = None):
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize MRI Import Manager.
 
         Args:
-            client: Client instance for API requests
-            edm_manager: Optional EDMManager instance
-            portfolio_manager: Optional PortfolioManager instance
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._edm_manager = edm_manager
-        self._portfolio_manager = portfolio_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-loaded edm manager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
 
     @property
     def portfolio_manager(self) -> "PortfolioManager":
-        """Lazy-loaded portfolio manager to avoid circular imports."""
-        if self._portfolio_manager is None:
-            from .portfolio import PortfolioManager
-            self._portfolio_manager = PortfolioManager(self.client)
-        return self._portfolio_manager
+        """Return the owning client's portfolio manager."""
+        return self._irp.portfolio
 
     def submit_mri_import_job(
         self,

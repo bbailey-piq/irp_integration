@@ -10,13 +10,13 @@ import time
 from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 
 from .utils import extract_id_from_location_header
-from .client import Client
 from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORKFLOW_COMPLETED_STATUSES, DELETE_RDM, GET_DATABRIDGE_JOB, UPDATE_GROUP_ACCESS, SEARCH_IMPORTED_RDMS, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists
 from .s3 import S3Manager
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .analysis import AnalysisManager
     from .edm import EDMManager
 
@@ -25,34 +25,25 @@ logger = logging.getLogger(__name__)
 class RDMManager:
     """Manager for RDM export operations."""
 
-    def __init__(self, client: Client, analysis_manager: Optional[Any] = None, edm_manager: Optional[Any] = None) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize RDM manager.
 
         Args:
-            client: IRP API client instance
-            analysis_manager: Optional AnalysisManager instance
-            edm_manager: Optional EDMManager instance
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._analysis_manager = analysis_manager
-        self._edm_manager = edm_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def analysis_manager(self) -> "AnalysisManager":
-        """Lazy-loaded analysis manager to avoid circular imports."""
-        if self._analysis_manager is None:
-            from .analysis import AnalysisManager
-            self._analysis_manager = AnalysisManager(self.client)
-        return self._analysis_manager
+        """Return the owning client's analysis manager."""
+        return self._irp.analysis
     
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-loaded edm manager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
 
 
     def export_analyses_to_rdm(

@@ -10,13 +10,13 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from .client import Client
 from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int
 from .utils import extract_id_from_location_header
 
 if TYPE_CHECKING:
+    from . import IRPClient
     from .edm import EDMManager
 
 logger = logging.getLogger(__name__)
@@ -25,24 +25,20 @@ logger = logging.getLogger(__name__)
 class PortfolioManager:
     """Manager for portfolio operations."""
 
-    def __init__(self, client: Client, edm_manager: Optional[Any] = None) -> None:
+    def __init__(self, irp: "IRPClient") -> None:
         """
         Initialize portfolio manager.
 
         Args:
-            client: IRP API client instance
-            edm_manager: Optional EDMManager instance
+            irp: Owning IRP client instance
         """
-        self.client = client
-        self._edm_manager = edm_manager
+        self._irp = irp
+        self.client = irp.client
 
     @property
     def edm_manager(self) -> "EDMManager":
-        """Lazy-loaded edm manager to avoid circular imports."""
-        if self._edm_manager is None:
-            from .edm import EDMManager
-            self._edm_manager = EDMManager(self.client)
-        return self._edm_manager
+        """Return the owning client's EDM manager."""
+        return self._irp.edm
 
 
     def get_portfolio_by_id(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]:
