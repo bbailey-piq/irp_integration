@@ -6,7 +6,7 @@ and Line of Business (LOB) assignments.
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Any, Tuple, TYPE_CHECKING
 from .constants import (
     CREATE_TREATY,
     SEARCH_TREATIES,

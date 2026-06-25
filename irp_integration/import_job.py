@@ -7,7 +7,7 @@ platform import jobs. Uses the /platform/import/v1/jobs endpoint.
 
 import logging
 import time
-from typing import Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Any, Tuple, TYPE_CHECKING
 
 from .constants import GET_IMPORT_JOB, WORKFLOW_COMPLETED_STATUSES
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
