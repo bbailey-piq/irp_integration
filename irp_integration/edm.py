@@ -531,11 +531,17 @@ class EDMManager:
         """
         Submit EDM import job with S3 file upload.
 
+        All cheap, upload-independent checks run before the expensive S3 upload
+        so the call fails fast (e.g. on a bad server name, exposure-set error,
+        or duplicate EDM name) without burning a multi-GB transfer.
+
         This method handles the complete EDM import workflow:
-        1. Create import folder (get S3 credentials)
-        2. Upload EDM .bak file to S3
-        3. Create or get existing exposure set
-        4. Submit import job
+        1. Look up database server
+        2. Create or get existing exposure set
+        3. Validate the EDM name is unique
+        4. Create import folder (get S3 credentials)
+        5. Upload EDM .bak file to S3
+        6. Submit import job
 
         Args:
             edm_name: Name for the EDM
@@ -553,11 +559,11 @@ class EDMManager:
         validate_non_empty_string(edm_name, "edm_name")
         validate_file_exists(edm_file_path, "edm_file_path")
         validate_non_empty_string(server_name, "server_name")
-        
+
         logger.info("Submitting EDM import job for '%s'", edm_name)
         s3_manager = S3Manager()
 
-        # Look up database server
+        # Step 1: Look up database server
         database_servers = self.search_database_servers(filter=f"serverName=\"{server_name}\"")
         if len(database_servers) != 1:
             raise IRPReferenceDataError(f"Database server '{server_name}' not found")
@@ -566,8 +572,23 @@ class EDMManager:
         except (KeyError, TypeError, IndexError) as e:
             raise IRPAPIError(f"Failed to extract server ID: {e}") from e
 
+        # Step 2: Create or get existing exposure set
+        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{edm_name}\"")
+        if len(exposure_sets) > 0:
+            try:
+                exposure_set_id = exposure_sets[0]['exposureSetId']
+            except (KeyError, TypeError, IndexError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract exposure set ID: {e}"
+                ) from e
+        else:
+            exposure_set_id = self.create_exposure_set(name=edm_name)
+
+        # Step 3: Validate the EDM name is unique before the upload
+        self.validate_unique_edms([edm_name])
+
         logger.debug("Creating import folder for EDM '%s'", edm_name)
-        # Step 1: Create import folder
+        # Step 4: Create import folder
         folder_data = {
             "folderType": "EDM",
             "properties": {
@@ -587,23 +608,11 @@ class EDMManager:
                 f"Create import folder response missing required fields: {e}"
             ) from e
 
-        # Step 2: Upload file to S3
+        # Step 5: Upload file to S3
         logger.debug("Uploading EDM file '%s' to S3", edm_file_path)
         s3_manager.upload_file(edm_file_path, upload_details)
 
-        # Step 3: Create or get existing exposure set
-        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{edm_name}\"")
-        if len(exposure_sets) > 0:
-            try:
-                exposure_set_id = exposure_sets[0]['exposureSetId']
-            except (KeyError, TypeError, IndexError) as e:
-                raise IRPAPIError(
-                    f"Failed to extract exposure set ID: {e}"
-                ) from e
-        else:
-            exposure_set_id = self.create_exposure_set(name=edm_name)
-
-        # Step 4: Submit import job
+        # Step 6: Submit import job
         settings = {
             "folderId": int(folder_id),
             "exposureName": edm_name,
