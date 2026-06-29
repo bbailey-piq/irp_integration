@@ -614,11 +614,17 @@ def submit_edm_import_job(
 
 Submit EDM import job with S3 file upload.
 
+All cheap, upload-independent checks run before the expensive S3 upload
+so the call fails fast (e.g. on a bad server name, exposure-set error,
+or duplicate EDM name) without burning a multi-GB transfer.
+
 This method handles the complete EDM import workflow:
-1. Create import folder (get S3 credentials)
-2. Upload EDM .bak file to S3
-3. Create or get existing exposure set
-4. Submit import job
+1. Look up database server
+2. Create or get existing exposure set
+3. Validate the EDM name is unique
+4. Create import folder (get S3 credentials)
+5. Upload EDM .bak file to S3
+6. Submit import job
 
 **Arguments:**
  - **edm_name:**  Name for the EDM
