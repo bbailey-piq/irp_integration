@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Tuple, TYPE_CHECKING
 from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
-from .utils import extract_id_from_location_header, paginate_search
+from .utils import extract_id_from_location_header
 from .s3 import S3Manager
 
 if TYPE_CHECKING:
@@ -202,8 +202,7 @@ class EDMManager:
         """
         Search all EDMs with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria, paging via
-        ``paginate_search``.
+        Fetches all pages of results matching the filter criteria.
 
         Args:
             filter: Optional filter string for EDM names
@@ -211,15 +210,21 @@ class EDMManager:
         Returns:
             Complete list of all matching EDMs across all pages
         """
-        return paginate_search(
-            lambda limit, offset: self.search_edms(
-                filter=filter,
-                limit=limit,
-                offset=offset
-            ),
-            "EDM search"
-        )
+        all_results = []
+        offset = 0
+        limit = 100
 
+        while True:
+            results = self.search_edms(filter=filter, limit=limit, offset=offset)
+            all_results.extend(results)
+
+            # If we got fewer results than the limit, we've reached the end
+            if len(results) < limit:
+                break
+            offset += limit
+
+        return all_results
+        
 
     def submit_create_edm_job(self, edm_name: str, server_name: str = "databridge-1") -> Tuple[int, Dict[str, Any]]:
         """
