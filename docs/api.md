@@ -441,7 +441,8 @@ def search_edms_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all EDMs with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string for EDM names
@@ -1623,7 +1624,8 @@ def search_treaties_paginated(self, exposure_id: int, filter: str = '') -> List[
 
 Search all treaties for a given exposure ID with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -2184,7 +2186,8 @@ def search_analyses_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all analysis results with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string (default: "")
@@ -2634,7 +2637,9 @@ def search_databases_paginated(self, server_name: str, filter: str = '') -> List
 
 Search all databases on a server with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. Note that each page re-resolves the server name to
+a server ID, as the single-page call does.
 
 **Arguments:**
  - **server_name:**  Name of the database server
