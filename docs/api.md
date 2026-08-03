@@ -833,8 +833,7 @@ def search_accounts(
     filter: str = '',
     sort: str = '',
     limit: int = 100,
-    offset: int = 0,
-    allow_deep_filters: bool = False
+    offset: int = 0
 ) -> List[Dict[str, Any]]
 ```
 
@@ -851,18 +850,28 @@ combined with AND/OR. String literals are double-quoted, IN lists are
 parenthesised, and ``*`` is the wildcard. List operators are not
 supported on YYYY-MM-DD properties; use range comparisons instead.
 
-Line of business and state are not filterable here either. Use
-``search_policies`` (LOB) and ``search_locations`` (admin1Code /
-admin1Name) for those selections and join back on accountId — both are
-documented and neither needs ``allow_deep_filters``.
+Line of business and state are not filterable here. Use
+``search_policies`` (LOB) and ``search_locations`` (admin1Code) for
+those selections and join back on accountId; both are documented and
+both were verified against Data Bridge.
 
-``allow_deep_filters`` is the only parameter of its kind in the API and
-is effectively undocumented: the reference offers the single sentence
-"If true, this search was triggered from portfolio", with no default
-and no definition of "deep", and the filtering guide's one example
-passes it as false. It might widen the filterable property set beyond
-the account itself, but that is a guess, and the documented route above
-makes it unnecessary. Left exposed for probing, defaulting to False.
+The API's ``allowDeepFilters`` parameter is **not exposed**, and is
+always sent as false. It does widen the accepted filter set — with it
+set, ``lobName`` and ``admin1Code`` stop returning 400 on this
+operation — but the widened filters then lie: on one EDM they returned
+**zero rows with HTTP 200** at every scope size tested, from 1 to 272
+accounts, where Data Bridge and ``search_locations`` both counted 272.
+The same predicates returned rows on a different EDM. Scope size, filter
+length and state vocabulary were each ruled out as the cause. For a
+caller that creates a portfolio from the result, a silent empty
+selection is the worst available failure, so the parameter is gone
+rather than documented.
+
+There is also no way to scope this operation to a portfolio:
+``portfolioId``, ``portfolioName``, ``portInfoId``, ``portfolio`` and
+``portfolioNumber`` are all rejected, with and without deep filters.
+Listing account IDs is the only route, which runs into the URL length
+ceiling described on ``search_policies``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -871,8 +880,6 @@ makes it unnecessary. Left exposed for probing, defaulting to False.
    suffixed with ASC or DESC
  - **limit:**  Maximum results per page (default: 100)
  - **offset:**  Offset for pagination (default: 0)
- - **allow_deep_filters:**  Allow filtering on properties outside the
-   account itself (default: False)
 
 **Returns:**
 > List of account dicts
@@ -888,8 +895,7 @@ def search_accounts_paginated(
     self,
     exposure_id: int,
     filter: str = '',
-    sort: str = '',
-    allow_deep_filters: bool = False
+    sort: str = ''
 ) -> List[Dict[str, Any]]
 ```
 
@@ -904,8 +910,6 @@ and the guards around that.
  - **filter:**  Optional filter expression; see ``search_accounts`` for the
    supported properties and grammar
  - **sort:**  Optional comma-delimited sort properties
- - **allow_deep_filters:**  Allow filtering on properties outside the
-   account itself (default: False)
 
 **Returns:**
 > Complete list of all matching accounts across all pages
@@ -957,9 +961,22 @@ The two keys that matter are nested differently than they look::
 Reading the wrong one yields an empty grouping rather than an error, so
 the failure is silent.
 
-Note that ``filter`` travels in the URL, so a long ``accountId IN (...)``
-list can exceed the server's URL length limit. Chunk the account IDs
-across several calls, or omit the filter and intersect against the
+**Chunking a long ``accountId IN (...)`` list is the caller's job**, and
+it is not optional at portfolio scale: ``filter`` travels in the URL, and
+the server answers **HTTP 431** past roughly **4,870 characters** of
+filter. That boundary was bisected exactly — 1,193 IDs of one to four
+digits works, one more fails.
+
+Budget in *characters, not IDs*. The same 4,870 characters holds about
+1,190 four-digit IDs but only about half as many seven-digit ones, so a
+chunk size expressed as an ID count is correct on one portfolio and
+silently wrong on the next. Two further caveats: any additional
+predicates (``AND admin1Code = "FL"``) spend the same budget, and 431 is
+a *header* size limit, so the bearer token shares it — an API-key tenant
+may allow more, and the figure above should not be treated as portable.
+Chunks of 400 IDs were exercised without trouble.
+
+The alternative is to omit the filter and intersect against the
 portfolio's accounts client-side.
 
 Filterable properties (closed list): accountId, aggregateLimit,
@@ -1080,7 +1097,10 @@ result rather than an error::
 
 Each item is {location, propertyReference}.
 
-The URL-length caveat on ``search_policies`` applies here too.
+The URL-length caveat on ``search_policies`` applies here too, and this
+is the operation that meets it first: scoping a state selection to a
+source portfolio means listing that portfolio's account IDs, since no
+portfolio predicate is accepted anywhere (see ``search_accounts``).
 
 Filterable properties (closed list): accountId, addressType,
 admin1Code, admin1Name, admin2Code, admin2Name, admin3Code,
@@ -1278,16 +1298,17 @@ Create multiple portfolios.
 **Arguments:**
  - **portfolio_data_list:**  List of portfolio data dicts, each containing:
    - edm_name: str
-   - portfolio_name: str
-   - portfolio_number: str
+   - portfolio_name: str (at most 40 characters)
+   - portfolio_number: str (at most 20 characters)
    - description: str
 
 **Returns:**
 > List of portfolio IDs
 
 **Raises:**
- - **IRPValidationError:**  If portfolio_data_list is empty or invalid, or
-   if any portfolio name is already taken in its EDM
+ - **IRPValidationError:**  If portfolio_data_list is empty or invalid, if a
+   name field exceeds its length limit, or if any portfolio name is
+   already taken in its EDM
  - **IRPAPIError:**  If portfolio creation fails
 
 #### `create_portfolio`
@@ -1311,11 +1332,25 @@ adopt-an-existing-portfolio-by-name should call ``search_portfolios``
 itself rather than catching that, so it never has to distinguish a name
 collision from a genuine API failure by matching on message text.
 
+Both name fields are capped server-side — ``portfolioName`` at 40
+characters and ``portfolioNumber`` at 20, boundaries confirmed exactly
+— and both are validated here before any request is sent. **Neither is
+truncated.** A shortened value can collide two distinct inputs into one
+identifier, which is far harder to notice afterwards than a rejected
+call. Note that 40 characters is tight for a composed name: a
+``{source portfolio} - {breakout value}`` scheme spends most of it
+before any collision suffix.
+
+Because ``portfolio_number`` defaults to ``portfolio_name``, a name over
+20 characters must be accompanied by an explicit ``portfolio_number``;
+omitting it raises rather than quietly shortening the derived value.
+
 **Arguments:**
  - **edm_name:**  Name of EDM datasource
- - **portfolio_name:**  Name for new portfolio
- - **portfolio_number:**  Portfolio number; defaults to portfolio_name when
-   empty and is truncated to 20 characters (default: "")
+ - **portfolio_name:**  Name for new portfolio, at most 40 characters
+ - **portfolio_number:**  Portfolio number, at most 20 characters; defaults
+   to portfolio_name when empty, which then has to be within that
+   limit too (default: "")
  - **description:**  Portfolio description; an auto-generated description is
    used when empty (default: "")
 
@@ -1323,8 +1358,9 @@ collision from a genuine API failure by matching on message text.
 > Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
 
 **Raises:**
- - **IRPValidationError:**  If inputs are invalid, or if a portfolio with
-   this name already exists in the EDM
+ - **IRPValidationError:**  If inputs are invalid, if either name field
+   exceeds its length limit, or if a portfolio with this name
+   already exists in the EDM
  - **IRPAPIError:**  If the EDM lookup or the creation request fails
 
 #### `submit_geohaz_jobs`
@@ -4152,6 +4188,27 @@ Validate that a value is a non-negative integer.
 
 **Raises:**
  - **IRPValidationError:**  If value is not a non-negative integer
+
+#### `validate_max_length`
+
+```python
+def validate_max_length(value: Any, param_name: str, max_length: int) -> None
+```
+
+Validate that a string is no longer than a server-side limit.
+
+Raises rather than truncating on purpose: a silently shortened value can
+collide two distinct inputs into one, which is harder to notice than a
+rejected call.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+ - **max_length:**  Maximum permitted number of characters
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a string, or is longer than
+   max_length
 
 #### `validate_file_exists`
 

@@ -10,9 +10,9 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO, SEARCH_ACCOUNTS, SEARCH_POLICIES, SEARCH_LOCATIONS, ADD_FILTERED_ACCOUNTS, MANAGE_ACCOUNTS_BY_PORTFOLIO
+from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO, SEARCH_ACCOUNTS, SEARCH_POLICIES, SEARCH_LOCATIONS, ADD_FILTERED_ACCOUNTS, MANAGE_ACCOUNTS_BY_PORTFOLIO, PORTFOLIO_NAME_MAX_LENGTH, PORTFOLIO_NUMBER_MAX_LENGTH
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
-from .validators import validate_list_not_empty, validate_list_of_positive_ints, validate_non_empty_string, validate_non_negative_int, validate_positive_int
+from .validators import validate_list_not_empty, validate_list_of_positive_ints, validate_max_length, validate_non_empty_string, validate_non_negative_int, validate_positive_int
 from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
@@ -267,8 +267,7 @@ class PortfolioManager:
         filter: str = "",
         sort: str = "",
         limit: int = 100,
-        offset: int = 0,
-        allow_deep_filters: bool = False
+        offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
         Search accounts across an entire EDM.
@@ -284,18 +283,28 @@ class PortfolioManager:
         parenthesised, and ``*`` is the wildcard. List operators are not
         supported on YYYY-MM-DD properties; use range comparisons instead.
 
-        Line of business and state are not filterable here either. Use
-        ``search_policies`` (LOB) and ``search_locations`` (admin1Code /
-        admin1Name) for those selections and join back on accountId — both are
-        documented and neither needs ``allow_deep_filters``.
+        Line of business and state are not filterable here. Use
+        ``search_policies`` (LOB) and ``search_locations`` (admin1Code) for
+        those selections and join back on accountId; both are documented and
+        both were verified against Data Bridge.
 
-        ``allow_deep_filters`` is the only parameter of its kind in the API and
-        is effectively undocumented: the reference offers the single sentence
-        "If true, this search was triggered from portfolio", with no default
-        and no definition of "deep", and the filtering guide's one example
-        passes it as false. It might widen the filterable property set beyond
-        the account itself, but that is a guess, and the documented route above
-        makes it unnecessary. Left exposed for probing, defaulting to False.
+        The API's ``allowDeepFilters`` parameter is **not exposed**, and is
+        always sent as false. It does widen the accepted filter set — with it
+        set, ``lobName`` and ``admin1Code`` stop returning 400 on this
+        operation — but the widened filters then lie: on one EDM they returned
+        **zero rows with HTTP 200** at every scope size tested, from 1 to 272
+        accounts, where Data Bridge and ``search_locations`` both counted 272.
+        The same predicates returned rows on a different EDM. Scope size, filter
+        length and state vocabulary were each ruled out as the cause. For a
+        caller that creates a portfolio from the result, a silent empty
+        selection is the worst available failure, so the parameter is gone
+        rather than documented.
+
+        There is also no way to scope this operation to a portfolio:
+        ``portfolioId``, ``portfolioName``, ``portInfoId``, ``portfolio`` and
+        ``portfolioNumber`` are all rejected, with and without deep filters.
+        Listing account IDs is the only route, which runs into the URL length
+        ceiling described on ``search_policies``.
 
         Args:
             exposure_id: Exposure ID
@@ -304,8 +313,6 @@ class PortfolioManager:
                 suffixed with ASC or DESC
             limit: Maximum results per page (default: 100)
             offset: Offset for pagination (default: 0)
-            allow_deep_filters: Allow filtering on properties outside the
-                account itself (default: False)
 
         Returns:
             List of account dicts
@@ -318,11 +325,13 @@ class PortfolioManager:
         validate_positive_int(limit, "limit")
         validate_non_negative_int(offset, "offset")
 
-        # requests renders a Python bool as "True"/"False"; the API expects lowercase
+        # Sent explicitly, and only ever false: see the docstring on why deep
+        # filters are not offered. Lowercase because requests renders a Python
+        # bool as "True"/"False", which the API rejects.
         params: Dict[str, Any] = {
             'limit': limit,
             'offset': offset,
-            'allowDeepFilters': 'true' if allow_deep_filters else 'false'
+            'allowDeepFilters': 'false'
         }
         if filter:
             params['filter'] = filter
@@ -343,8 +352,7 @@ class PortfolioManager:
         self,
         exposure_id: int,
         filter: str = "",
-        sort: str = "",
-        allow_deep_filters: bool = False
+        sort: str = ""
     ) -> List[Dict[str, Any]]:
         """
         Search all accounts within an EDM with automatic pagination.
@@ -358,8 +366,6 @@ class PortfolioManager:
             filter: Optional filter expression; see ``search_accounts`` for the
                 supported properties and grammar
             sort: Optional comma-delimited sort properties
-            allow_deep_filters: Allow filtering on properties outside the
-                account itself (default: False)
 
         Returns:
             Complete list of all matching accounts across all pages
@@ -376,8 +382,7 @@ class PortfolioManager:
                 filter=filter,
                 sort=sort,
                 limit=limit,
-                offset=offset,
-                allow_deep_filters=allow_deep_filters
+                offset=offset
             ),
             f"Account search for exposure ID {exposure_id}"
         )
@@ -421,9 +426,22 @@ class PortfolioManager:
         Reading the wrong one yields an empty grouping rather than an error, so
         the failure is silent.
 
-        Note that ``filter`` travels in the URL, so a long ``accountId IN (...)``
-        list can exceed the server's URL length limit. Chunk the account IDs
-        across several calls, or omit the filter and intersect against the
+        **Chunking a long ``accountId IN (...)`` list is the caller's job**, and
+        it is not optional at portfolio scale: ``filter`` travels in the URL, and
+        the server answers **HTTP 431** past roughly **4,870 characters** of
+        filter. That boundary was bisected exactly — 1,193 IDs of one to four
+        digits works, one more fails.
+
+        Budget in *characters, not IDs*. The same 4,870 characters holds about
+        1,190 four-digit IDs but only about half as many seven-digit ones, so a
+        chunk size expressed as an ID count is correct on one portfolio and
+        silently wrong on the next. Two further caveats: any additional
+        predicates (``AND admin1Code = "FL"``) spend the same budget, and 431 is
+        a *header* size limit, so the bearer token shares it — an API-key tenant
+        may allow more, and the figure above should not be treated as portable.
+        Chunks of 400 IDs were exercised without trouble.
+
+        The alternative is to omit the filter and intersect against the
         portfolio's accounts client-side.
 
         Filterable properties (closed list): accountId, aggregateLimit,
@@ -569,7 +587,10 @@ class PortfolioManager:
 
         Each item is {location, propertyReference}.
 
-        The URL-length caveat on ``search_policies`` applies here too.
+        The URL-length caveat on ``search_policies`` applies here too, and this
+        is the operation that meets it first: scoping a state selection to a
+        source portfolio means listing that portfolio's account IDs, since no
+        portfolio predicate is accepted anywhere (see ``search_accounts``).
 
         Filterable properties (closed list): accountId, addressType,
         admin1Code, admin1Name, admin2Code, admin2Name, admin3Code,
@@ -885,16 +906,17 @@ class PortfolioManager:
         Args:
             portfolio_data_list: List of portfolio data dicts, each containing:
                 - edm_name: str
-                - portfolio_name: str
-                - portfolio_number: str
+                - portfolio_name: str (at most 40 characters)
+                - portfolio_number: str (at most 20 characters)
                 - description: str
 
         Returns:
             List of portfolio IDs
 
         Raises:
-            IRPValidationError: If portfolio_data_list is empty or invalid, or
-                if any portfolio name is already taken in its EDM
+            IRPValidationError: If portfolio_data_list is empty or invalid, if a
+                name field exceeds its length limit, or if any portfolio name is
+                already taken in its EDM
             IRPAPIError: If portfolio creation fails
         """
         validate_list_not_empty(portfolio_data_list, "portfolio_data_list")
@@ -940,11 +962,25 @@ class PortfolioManager:
         itself rather than catching that, so it never has to distinguish a name
         collision from a genuine API failure by matching on message text.
 
+        Both name fields are capped server-side — ``portfolioName`` at 40
+        characters and ``portfolioNumber`` at 20, boundaries confirmed exactly
+        — and both are validated here before any request is sent. **Neither is
+        truncated.** A shortened value can collide two distinct inputs into one
+        identifier, which is far harder to notice afterwards than a rejected
+        call. Note that 40 characters is tight for a composed name: a
+        ``{source portfolio} - {breakout value}`` scheme spends most of it
+        before any collision suffix.
+
+        Because ``portfolio_number`` defaults to ``portfolio_name``, a name over
+        20 characters must be accompanied by an explicit ``portfolio_number``;
+        omitting it raises rather than quietly shortening the derived value.
+
         Args:
             edm_name: Name of EDM datasource
-            portfolio_name: Name for new portfolio
-            portfolio_number: Portfolio number; defaults to portfolio_name when
-                empty and is truncated to 20 characters (default: "")
+            portfolio_name: Name for new portfolio, at most 40 characters
+            portfolio_number: Portfolio number, at most 20 characters; defaults
+                to portfolio_name when empty, which then has to be within that
+                limit too (default: "")
             description: Portfolio description; an auto-generated description is
                 used when empty (default: "")
 
@@ -952,12 +988,25 @@ class PortfolioManager:
             Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
 
         Raises:
-            IRPValidationError: If inputs are invalid, or if a portfolio with
-                this name already exists in the EDM
+            IRPValidationError: If inputs are invalid, if either name field
+                exceeds its length limit, or if a portfolio with this name
+                already exists in the EDM
             IRPAPIError: If the EDM lookup or the creation request fails
         """
         validate_non_empty_string(edm_name, "edm_name")
         validate_non_empty_string(portfolio_name, "portfolio_name")
+        validate_max_length(portfolio_name, "portfolio_name", PORTFOLIO_NAME_MAX_LENGTH)
+
+        # Checked before the lookups below so an over-long name costs no requests
+        if portfolio_number:
+            validate_max_length(portfolio_number, "portfolio_number", PORTFOLIO_NUMBER_MAX_LENGTH)
+        elif len(portfolio_name) > PORTFOLIO_NUMBER_MAX_LENGTH:
+            raise IRPValidationError(
+                f"portfolio_number was not supplied, so it defaults to portfolio_name, "
+                f"which is {len(portfolio_name)} characters and exceeds the "
+                f"{PORTFOLIO_NUMBER_MAX_LENGTH}-character limit. Pass portfolio_number "
+                f"explicitly."
+            )
 
         edms = self.edm_manager.search_edms(filter=f"exposureName=\"{edm_name}\"")
         if (len(edms) != 1):
@@ -980,7 +1029,7 @@ class PortfolioManager:
 
         data = {
             "portfolioName": portfolio_name,
-            "portfolioNumber": portfolio_number[:20],
+            "portfolioNumber": portfolio_number,
             "description": description,
         }
 

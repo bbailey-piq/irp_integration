@@ -56,6 +56,12 @@ MANAGE_ACCOUNTS_BY_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/por
 GEOHAZ_PORTFOLIO = '/platform/geohaz/v1/jobs'
 GET_GEOHAZ_JOB = '/platform/geohaz/v1/jobs/{jobId}'
 
+# Portfolio field limits, enforced server-side. Both boundaries were confirmed
+# exactly against a live tenant: 40 characters creates and 41 rejects with
+# "portfolioName size must be between 0 and 40".
+PORTFOLIO_NAME_MAX_LENGTH = 40
+PORTFOLIO_NUMBER_MAX_LENGTH = 20
+
 # Account endpoints
 SEARCH_ACCOUNTS = '/platform/riskdata/v1/exposures/{exposureId}/accounts'
 

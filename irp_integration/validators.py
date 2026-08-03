@@ -71,6 +71,34 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
         )
 
 
+def validate_max_length(value: Any, param_name: str, max_length: int) -> None:
+    """
+    Validate that a string is no longer than a server-side limit.
+
+    Raises rather than truncating on purpose: a silently shortened value can
+    collide two distinct inputs into one, which is harder to notice than a
+    rejected call.
+
+    Args:
+        value: Value to validate
+        param_name: Parameter name for error message
+        max_length: Maximum permitted number of characters
+
+    Raises:
+        IRPValidationError: If value is not a string, or is longer than
+            max_length
+    """
+    if not isinstance(value, str):
+        raise IRPValidationError(
+            f"{param_name} must be a string, got {type(value).__name__}"
+        )
+    if len(value) > max_length:
+        raise IRPValidationError(
+            f"{param_name} must be at most {max_length} characters, "
+            f"got {len(value)}: {value!r}"
+        )
+
+
 def validate_file_exists(file_path: str, param_name: str = "file_path") -> None:
     """
     Validate that a file exists at the given path.
