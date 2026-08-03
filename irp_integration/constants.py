@@ -51,8 +51,19 @@ SEARCH_ACCOUNTS_BY_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/por
 CREATE_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/portfolios'
 GET_PORTFOLIO_BY_ID = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}'
 GET_PORTFOLIO_METADATA = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics'
+ADD_FILTERED_ACCOUNTS = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/filtered-accounts'
+MANAGE_ACCOUNTS_BY_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/accounts'
 GEOHAZ_PORTFOLIO = '/platform/geohaz/v1/jobs'
 GET_GEOHAZ_JOB = '/platform/geohaz/v1/jobs/{jobId}'
+
+# Account endpoints
+SEARCH_ACCOUNTS = '/platform/riskdata/v1/exposures/{exposureId}/accounts'
+
+# Policy endpoints
+SEARCH_POLICIES = '/platform/riskdata/v1/exposures/{exposureId}/policies'
+
+# Location endpoints
+SEARCH_LOCATIONS = '/platform/riskdata/v1/exposures/{exposureId}/locations'
 
 # Treaty endpoints
 SEARCH_TREATIES = 'platform/riskdata/v1/exposures/{exposureId}/treaties'

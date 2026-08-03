@@ -111,6 +111,36 @@ def validate_list_not_empty(value: Any, param_name: str) -> None:
         raise IRPValidationError(f"{param_name} cannot be empty")
     
 
+def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
+    """
+    Validate that a value is a list containing only positive integers.
+
+    An empty list is accepted; callers that require at least one element
+    should enforce that themselves.
+
+    Args:
+        value: Value to validate
+        param_name: Parameter name for error message
+
+    Raises:
+        IRPValidationError: If value is not a list, or any element is not a
+            positive integer
+    """
+    if not isinstance(value, list):
+        raise IRPValidationError(
+            f"{param_name} must be a list, got {type(value).__name__}"
+        )
+    for index, item in enumerate(value):
+        if not isinstance(item, int):
+            raise IRPValidationError(
+                f"{param_name}[{index}] must be an integer, got {type(item).__name__}"
+            )
+        if item <= 0:
+            raise IRPValidationError(
+                f"{param_name}[{index}] must be positive, got {item}"
+            )
+
+
 def validate_positive_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive float.
