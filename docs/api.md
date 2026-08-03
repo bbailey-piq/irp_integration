@@ -441,7 +441,8 @@ def search_edms_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all EDMs with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string for EDM names
@@ -731,7 +732,8 @@ def search_portfolios_paginated(self, exposure_id: int, filter: str = '') -> Lis
 
 Search all portfolios within an exposure with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -802,11 +804,11 @@ def search_accounts_by_portfolio_paginated(
 
 Retrieve all accounts within a portfolio with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. Paging is
-delegated to ``paginate_search``, which resolves what the API's
-``offset`` actually counts before trusting a second page — relevant
-here in particular, since this operation does not declare limit/offset
-at all and may ignore them.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. Its "page larger than the requested limit" guard
+matters here in particular: this operation does not declare limit/offset
+at all, so an oversized response means it ignored them and was already
+complete.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -893,11 +895,9 @@ def search_accounts_paginated(
 
 Search all accounts within an EDM with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. Paging is
-delegated to ``paginate_search``, which resolves what the API's
-``offset`` actually counts — the reference calls it a page number and
-the filtering guide calls it a record offset — before trusting a
-second page.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``, which documents what the API's ``offset`` counts
+and the guards around that.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -944,7 +944,18 @@ search to a portfolio's accounts and group the results::
 
 A single pass yields every LOB bucket at once, and an account writing
 several lines of business lands in each of them — correct behavior,
-since portfolios hold whole accounts.
+since portfolios hold whole accounts. Verified against a purpose-built
+multi-LOB book: the client-side grouping matched Data Bridge exactly,
+and an account with three policies in three LOBs landed in all three
+sub-portfolios, carrying all three policies into each.
+
+The two keys that matter are nested differently than they look::
+
+    policy["accountId"]         # flat
+    policy["lob"]["lobName"]    # nested
+
+Reading the wrong one yields an empty grouping rather than an error, so
+the failure is silent.
 
 Note that ``filter`` travels in the URL, so a long ``accountId IN (...)``
 list can exceed the server's URL length limit. Chunk the account IDs
@@ -960,11 +971,12 @@ percentOfLossDeductible, peril, policyId, policyNumber, status,
 structure, userText1, userText2, userText3, userText4. See
 ``search_accounts`` for the filter grammar.
 
-``lobId`` is listed as *sortable* for this operation but is absent from
-the filterable list. Whether that omission is real or a documentation
-gap is worth a single probe against a live tenant: a working
-``lobId = <id>`` predicate would reduce the grouping above to one
-server-side call per LOB.
+``lobId`` is listed as *sortable* for this operation and is absent from
+the filterable list, and filtering on it anyway is worse than a clean
+rejection: it returns **HTTP 500** ("Database error occurred while
+searching policies") rather than the 400 every other unsupported LOB
+token returns. Do not read that 500 as transient and retry it. LOB
+stays a client-side grouping.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -996,8 +1008,7 @@ def search_policies_paginated(
 Search all policies within an EDM with automatic pagination.
 
 Fetches all pages of results matching the filter criteria, paging via
-``paginate_search`` on the same reasoning as
-``search_accounts_paginated``.
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -1040,13 +1051,34 @@ the accounts to add::
     }
 
 admin1 is the first-level administrative division, so non-US provinces
-and regions use the same attribute. Whether a given EDM populates codes
-("FL"), names ("Florida"), or both is data-dependent and worth
-confirming against the tenant before relying on either.
+and regions use the same attribute.
 
-Results are nested: each item is {location, propertyReference}, where
-``location.property`` carries accountId and locationId, and
-``location.address`` carries admin1Code and admin1Name.
+**Filter on admin1Code, not admin1Name.** Both are filterable, but
+admin1Name is a *geocoding output*, not an import field: a freshly
+imported portfolio arrives with admin1Code populated from the source
+data and admin1Name empty on every location, and a filter on the name
+then returns zero rows with HTTP 200 — no error to catch. Running GeoHaz
+populates it. A state selection built on admin1Name therefore produces
+empty sub-portfolios, reported as success, for any portfolio geocoded
+later than the breakout. admin1Name can also be empty on individual
+locations of an otherwise-geocoded EDM, so a query mixing the two
+vocabularies cannot be expressed as one filter anyway. When populated,
+admin1Name matching is case-insensitive.
+
+admin1Code is not always a two-letter abbreviation: some EDMs carry
+numeric codes (``"200"`` for Puerto Rico, ``"010"`` for St Croix), so
+treat it as an opaque string and map to a display name client-side
+rather than constructing codes.
+
+Results are nested, and reading the wrong key returns a plausible empty
+result rather than an error::
+
+    row["location"]["property"]["accountId"]
+    row["location"]["property"]["locationId"]
+    row["location"]["address"]["admin1Code"]
+    row["location"]["address"]["admin1Name"]
+
+Each item is {location, propertyReference}.
 
 The URL-length caveat on ``search_policies`` applies here too.
 
@@ -1097,10 +1129,9 @@ def search_locations_paginated(
 Search all locations within an EDM with automatic pagination.
 
 Fetches all pages of results matching the filter criteria, paging via
-``paginate_search`` on the same reasoning as
-``search_accounts_paginated``. Because that helper detects progress by
-hashing page content, it does not depend on this operation's nested
-response shape being what the spec describes.
+``paginate_search``. Because that helper detects progress by hashing
+page content, it does not depend on this operation's nested response
+shape being what the spec describes.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -1134,26 +1165,28 @@ def add_filtered_accounts(
 Add accounts to a portfolio by ID list, by query filter, or both.
 
 Wraps the synchronous ``manageFilteredAccounts`` operation. HTTP 200
-("Accounts added to portfolio") is its only documented success status,
-and it declares no response body, so an empty dict is returned on
-success. Any other 2xx raises rather than being normalised or polled —
-the legacy riskmodeler equivalents are asynchronous, but this Platform
-operation is not, and silently accepting a 202 here would hide that
-the request went down a different path.
+("Accounts added to portfolio") is its only documented success status
+and the only one observed live; it declares no response body, so an
+empty dict is returned on success. Any other 2xx raises rather than
+being normalised or polled — the legacy riskmodeler equivalents are
+asynchronous, but this Platform operation is not, and silently accepting
+a 202 here would hide that the request went down a different path.
 
-``manage_portfolio_accounts`` is generally the better choice for adding
-an explicit list of account IDs: it reports how many accounts were
-actually added, which this operation cannot.
+**Prefer ``manage_portfolio_accounts`` for populating a portfolio from
+an account-ID list.** This operation writes correctly and is idempotent,
+but it returns an empty object, so a caller cannot tell a populate that
+added nothing from one that added everything without reading the
+portfolio back. ``manage_portfolio_accounts`` reports its counts.
 
-Body semantics, as documented by the API: ``selectAll`` adds every
-account matched by ``queryFilter`` — every account in the EDM when no
-filter is given — and overrides ``markedAccounts``.
-``manageExistingAccounts`` means "only existing accounts can be added
-to portfolio. All specified markedAccount values are ignored. All
-specified queryFilter values are ignored", which reads as a mode switch
-rather than an upsert flag; its real behavior is unverified. The
-grammar of ``queryFilter`` is not documented and is not stated to match
-the ``filter`` query parameter used by the search operations; it is
+Body semantics. ``selectAll`` adds every account matched by
+``queryFilter`` — every account in the EDM when no filter is given — and
+overrides ``markedAccounts``. ``manageExistingAccounts`` is a mode
+switch, not an upsert flag, and confirmed live: with ``True`` and a
+fresh list of account IDs the call returned 200 and left the portfolio
+**empty**. ``markedAccounts`` really is ignored in that mode, so never
+set it when the intent is to add accounts. The grammar of
+``queryFilter`` is not documented and is not stated to match the
+``filter`` query parameter used by the search operations; it is
 transported verbatim.
 
 **Arguments:**
@@ -1166,7 +1199,9 @@ transported verbatim.
    account in the EDM when query_filter is empty. Overrides
    marked_accounts (default: False)
  - **manage_existing_accounts:**  Restrict the operation to accounts
-   already in the portfolio (default: False)
+   already in the portfolio. Setting this discards
+   marked_accounts and query_filter, so it adds nothing
+   (default: False)
 
 **Returns:**
 > Parsed response body, or an empty dict when the response has none
@@ -1198,14 +1233,22 @@ the form::
     {"addAccounts": {"completed": 4, "total": 4},
      "removeAccounts": {"completed": 0, "total": 0}}
 
-which makes it the better choice for populating a sub-portfolio from a
-known list of account IDs. A partial result (completed < total) is
-logged but not treated as an error; inspect the returned counts if the
-caller needs to act on it.
+which makes it **the populate path** for a sub-portfolio built from a
+known list of account IDs.
 
-HTTP 200 is the only documented success status and any other 2xx
-raises. The API documents HTTP 403 for this operation as the caller
-lacking the "Edit Portfolios" action.
+``completed`` counts IDs **newly added**, not IDs that ended up as
+members, so ``completed < total`` means "already present" — not
+"failed". The call is idempotent: re-sending the same 70 IDs returns
+``completed 0, total 70`` and leaves exactly 70 members, and adding 35
+then all 70 returns ``completed 35, total 70``, also leaving 70. A
+caller that treats ``completed < total`` as an error will fail every
+healthy re-run. To confirm what a portfolio holds, read it back and
+compare against the intended ID list rather than trusting the counts.
+The counts are logged; nothing here raises on a partial result.
+
+HTTP 200 is the only documented success status and the only one observed
+live; any other 2xx raises. The API documents HTTP 403 for this
+operation as the caller lacking the "Edit Portfolios" action.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -1243,8 +1286,9 @@ Create multiple portfolios.
 > List of portfolio IDs
 
 **Raises:**
- - **IRPValidationError:**  If portfolio_data_list is empty or invalid
- - **IRPAPIError:**  If portfolio creation fails or duplicate names exist
+ - **IRPValidationError:**  If portfolio_data_list is empty or invalid, or
+   if any portfolio name is already taken in its EDM
+ - **IRPAPIError:**  If portfolio creation fails
 
 #### `create_portfolio`
 
@@ -1260,6 +1304,13 @@ def create_portfolio(
 
 Create new portfolio in EDM.
 
+Portfolio names must be unique within the EDM, and this is enforced
+client-side: the name is looked up first and a match raises
+``IRPValidationError`` with no POST sent. A caller implementing
+adopt-an-existing-portfolio-by-name should call ``search_portfolios``
+itself rather than catching that, so it never has to distinguish a name
+collision from a genuine API failure by matching on message text.
+
 **Arguments:**
  - **edm_name:**  Name of EDM datasource
  - **portfolio_name:**  Name for new portfolio
@@ -1272,8 +1323,9 @@ Create new portfolio in EDM.
 > Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
 
 **Raises:**
- - **IRPValidationError:**  If inputs are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPValidationError:**  If inputs are invalid, or if a portfolio with
+   this name already exists in the EDM
+ - **IRPAPIError:**  If the EDM lookup or the creation request fails
 
 #### `submit_geohaz_jobs`
 
@@ -1315,6 +1367,19 @@ def submit_geohaz_job(
 
 Execute geocoding and/or hazard operations on portfolio.
 
+The returned job ID is served by ``/platform/geohaz/v1/jobs``, so poll it
+with ``poll_geohaz_job_to_completion`` (or ``get_geohaz_job`` for a
+single status check) — **not** with
+``import_job.poll_import_job_to_completion``, which answers
+``404 Invalid job id`` for a GeoHaz job that is running perfectly well.
+Four managers hand back job IDs served by four different job endpoints
+and the server error does not distinguish "wrong endpoint" from "no such
+job", so the 404 reads as though the job was never created.
+
+Geocoding is also what populates each location's ``admin1Name``, which
+arrives empty from an MRI import; see ``search_locations`` for why a
+state selection should filter on ``admin1Code`` instead.
+
 **Arguments:**
  - **portfolio_name:**  Name of the portfolio
  - **edm_name:**  Name of the EDM containing the portfolio
@@ -1327,7 +1392,8 @@ Execute geocoding and/or hazard operations on portfolio.
    is used when None (default: None)
 
 **Returns:**
-> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+> Tuple of (job_id, request_body), where job_id is a GeoHaz job ID and
+> request_body is the HTTP request payload
 
 **Raises:**
  - **IRPValidationError:**  If inputs are invalid
@@ -1522,7 +1588,8 @@ def search_treaties_paginated(self, exposure_id: int, filter: str = '') -> List[
 
 Search all treaties for a given exposure ID with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -2083,7 +2150,8 @@ def search_analyses_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all analysis results with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string (default: "")
@@ -2533,7 +2601,9 @@ def search_databases_paginated(self, server_name: str, filter: str = '') -> List
 
 Search all databases on a server with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. Note that each page re-resolves the server name to
+a server ID, as the single-page call does.
 
 **Arguments:**
  - **server_name:**  Name of the database server
@@ -4262,24 +4332,33 @@ def paginate_search(
 
 Page through a limit/offset search operation until it is exhausted.
 
-The Risk Data API documents ``offset`` two ways: the operation reference
-calls it "number of the page ... starting at 0" while the filtering guide
-describes a record offset. The two readings agree on the first request and
-disagree on every one after it, so guessing risks returning one page out of
-many while looking like a clean finish. Instead of guessing, this helper
-asks the server. Once a full first page proves there is more to fetch, it
-requests ``offset=1`` and compares the result against the first page: a
-response repeating the first page's records means ``offset`` counts records
-(rows 1..limit), while one disjoint from it means ``offset`` counts pages
-(page 1). The answer is logged and used for the rest of the walk, so a
-single call against a live tenant also settles the question for good.
+``offset`` counts records, so page N begins at ``N * limit``. The Risk Data
+API documents this two ways — the operation reference calls ``offset``
+"number of the page ... starting at 0" while the filtering guide describes a
+record offset — and a probe run against a live tenant settled it in the
+filtering guide's favour: ``offset=1`` returned 99 of the same 100 records
+as ``offset=0``, and ``offset=100`` began where ``offset=1`` ended. That
+held on the account, policy and location searches across three exposures,
+with no contrary observation.
 
-Progress is tracked by hashing page content rather than by reading record
-IDs, so a page whose records carry no recognizable identifier still ends
-the walk instead of spinning. Any page identical to one already seen stops
-it with a warning, as does exceeding ``max_pages``, as does a page larger
-than ``limit`` — that last one means the operation ignored pagination
+Every one of those observations came from a single tenant (``prodmgmt`` on
+``api-euw1``, bearer auth), so the guards below are load-bearing rather
+than decoration. Progress is tracked by hashing page content rather than by
+reading record IDs, so a response shape that differs from the spec, or
+records carrying no recognizable identifier, still end the walk instead of
+spinning. Any page identical to one already seen stops it with a warning —
+which is what a server that clamps or ignores an out-of-range ``offset``
+would produce — as does exceeding ``max_pages``, as does a page larger than
+``limit``, that last one meaning the operation ignored pagination
 altogether and the first response was already complete.
+
+One failure mode is deliberately left uncovered: a server that genuinely
+treats ``offset`` as a page number *and* answers an out-of-range page with
+an empty list would stop after one page and look like a clean finish.
+Distinguishing that costs an extra request on every multi-page walk, which
+the evidence above does not justify. A caller that suspects it should
+compare a result against a count the API did not produce rather than trust
+a short read.
 
 **Arguments:**
  - **fetch:**  Callable taking (limit, offset) and returning one page of results

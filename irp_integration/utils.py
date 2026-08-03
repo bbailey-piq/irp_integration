@@ -152,24 +152,33 @@ def paginate_search(
     """
     Page through a limit/offset search operation until it is exhausted.
 
-    The Risk Data API documents ``offset`` two ways: the operation reference
-    calls it "number of the page ... starting at 0" while the filtering guide
-    describes a record offset. The two readings agree on the first request and
-    disagree on every one after it, so guessing risks returning one page out of
-    many while looking like a clean finish. Instead of guessing, this helper
-    asks the server. Once a full first page proves there is more to fetch, it
-    requests ``offset=1`` and compares the result against the first page: a
-    response repeating the first page's records means ``offset`` counts records
-    (rows 1..limit), while one disjoint from it means ``offset`` counts pages
-    (page 1). The answer is logged and used for the rest of the walk, so a
-    single call against a live tenant also settles the question for good.
+    ``offset`` counts records, so page N begins at ``N * limit``. The Risk Data
+    API documents this two ways — the operation reference calls ``offset``
+    "number of the page ... starting at 0" while the filtering guide describes a
+    record offset — and a probe run against a live tenant settled it in the
+    filtering guide's favour: ``offset=1`` returned 99 of the same 100 records
+    as ``offset=0``, and ``offset=100`` began where ``offset=1`` ended. That
+    held on the account, policy and location searches across three exposures,
+    with no contrary observation.
 
-    Progress is tracked by hashing page content rather than by reading record
-    IDs, so a page whose records carry no recognizable identifier still ends
-    the walk instead of spinning. Any page identical to one already seen stops
-    it with a warning, as does exceeding ``max_pages``, as does a page larger
-    than ``limit`` — that last one means the operation ignored pagination
+    Every one of those observations came from a single tenant (``prodmgmt`` on
+    ``api-euw1``, bearer auth), so the guards below are load-bearing rather
+    than decoration. Progress is tracked by hashing page content rather than by
+    reading record IDs, so a response shape that differs from the spec, or
+    records carrying no recognizable identifier, still end the walk instead of
+    spinning. Any page identical to one already seen stops it with a warning —
+    which is what a server that clamps or ignores an out-of-range ``offset``
+    would produce — as does exceeding ``max_pages``, as does a page larger than
+    ``limit``, that last one meaning the operation ignored pagination
     altogether and the first response was already complete.
+
+    One failure mode is deliberately left uncovered: a server that genuinely
+    treats ``offset`` as a page number *and* answers an out-of-range page with
+    an empty list would stop after one page and look like a clean finish.
+    Distinguishing that costs an extra request on every multi-page walk, which
+    the evidence above does not justify. A caller that suspects it should
+    compare a result against a count the API did not produce rather than trust
+    a short read.
 
     Args:
         fetch: Callable taking (limit, offset) and returning one page of results
@@ -197,38 +206,8 @@ def paginate_search(
     all_results: List[Any] = list(first_page)
     seen_pages = {_fingerprint(first_page)}
 
-    # Settle what offset means before trusting any later page
-    probe = fetch(limit, 1)
-    if not probe:
-        # Empty under either reading, so there is nothing after the first page
-        return all_results
-
-    first_page_records = {_fingerprint(record) for record in first_page}
-    probe_records = {_fingerprint(record) for record in probe}
-    shared = len(first_page_records & probe_records)
-    offset_is_page_number = shared * 2 < len(probe_records)
-
-    logger.info(
-        "%s treats offset as %s (offset=1 shared %s of %s records with the first page)",
-        description,
-        "a page number" if offset_is_page_number else "a record offset",
-        shared, len(probe_records)
-    )
-
-    if offset_is_page_number:
-        # The probe is page 1, so keep it and resume at page 2
-        all_results.extend(probe)
-        seen_pages.add(_fingerprint(probe))
-        if len(probe) < limit:
-            return all_results
-        next_page_index = 2
-    else:
-        # The probe overlapped the first page, so discard it; the next unseen
-        # records start one full page in
-        next_page_index = 1
-
-    for page_index in range(next_page_index, max_pages):
-        offset = page_index if offset_is_page_number else page_index * limit
+    for page_index in range(1, max_pages):
+        offset = page_index * limit
         page = fetch(limit, offset)
         if not page:
             break
