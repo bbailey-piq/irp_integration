@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO, SEARCH_ACCOUNTS, SEARCH_POLICIES, SEARCH_LOCATIONS, ADD_FILTERED_ACCOUNTS, MANAGE_ACCOUNTS_BY_PORTFOLIO
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
 from .validators import validate_list_not_empty, validate_list_of_positive_ints, validate_non_empty_string, validate_non_negative_int, validate_positive_int
-from .utils import extract_id_from_location_header
+from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
     from . import IRPClient
@@ -230,12 +230,11 @@ class PortfolioManager:
         """
         Retrieve all accounts within a portfolio with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria. Because the
-        API does not declare limit/offset for this operation, two guards bound
-        the loop: a page larger than the requested limit means the server
-        ignored pagination and already returned everything, and a page holding
-        only already-seen account IDs means paging is not advancing. Both are
-        logged as warnings.
+        Fetches all pages of results matching the filter criteria. Paging is
+        delegated to ``paginate_search``, which resolves what the API's
+        ``offset`` actually counts before trusting a second page — relevant
+        here in particular, since this operation does not declare limit/offset
+        at all and may ignore them.
 
         Args:
             exposure_id: Exposure ID
@@ -254,47 +253,17 @@ class PortfolioManager:
         validate_positive_int(exposure_id, "exposure_id")
         validate_positive_int(portfolio_id, "portfolio_id")
 
-        all_results: List[Dict[str, Any]] = []
-        seen_account_ids: set = set()
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_accounts_by_portfolio(
+        return paginate_search(
+            lambda limit, offset: self.search_accounts_by_portfolio(
                 exposure_id=exposure_id,
                 portfolio_id=portfolio_id,
                 filter=filter,
                 sort=sort,
                 limit=limit,
                 offset=offset
-            )
-
-            # More rows than we asked for means the server ignored the paging
-            # params, so this single response is already the complete set
-            if len(results) > limit:
-                logger.warning(
-                    "Portfolio ID %s account search ignored pagination (%s rows for limit %s); returning the single response",
-                    portfolio_id, len(results), limit
-                )
-                return results
-
-            page_account_ids = {account.get('accountId') for account in results if account.get('accountId') is not None}
-            if page_account_ids and page_account_ids <= seen_account_ids:
-                logger.warning(
-                    "Portfolio ID %s account search returned an already-seen page at offset %s; stopping. Results may be incomplete.",
-                    portfolio_id, offset
-                )
-                break
-            seen_account_ids |= page_account_ids
-
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+            ),
+            f"Account search for portfolio ID {portfolio_id}"
+        )
 
     def search_accounts(
         self,
@@ -384,11 +353,11 @@ class PortfolioManager:
         """
         Search all accounts within an EDM with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria. A page
-        holding only already-seen account IDs stops the loop with a warning:
-        the API describes offset as a page number while its filtering guide
-        describes it as a record offset, so a page that fails to advance is
-        treated as broken paging rather than looped over.
+        Fetches all pages of results matching the filter criteria. Paging is
+        delegated to ``paginate_search``, which resolves what the API's
+        ``offset`` actually counts — the reference calls it a page number and
+        the filtering guide calls it a record offset — before trusting a
+        second page.
 
         Args:
             exposure_id: Exposure ID
@@ -407,38 +376,17 @@ class PortfolioManager:
         """
         validate_positive_int(exposure_id, "exposure_id")
 
-        all_results: List[Dict[str, Any]] = []
-        seen_account_ids: set = set()
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_accounts(
+        return paginate_search(
+            lambda limit, offset: self.search_accounts(
                 exposure_id=exposure_id,
                 filter=filter,
                 sort=sort,
                 limit=limit,
                 offset=offset,
                 allow_deep_filters=allow_deep_filters
-            )
-
-            page_account_ids = {account.get('accountId') for account in results if account.get('accountId') is not None}
-            if page_account_ids and page_account_ids <= seen_account_ids:
-                logger.warning(
-                    "Account search for exposure ID %s returned an already-seen page at offset %s; stopping. Results may be incomplete.",
-                    exposure_id, offset
-                )
-                break
-            seen_account_ids |= page_account_ids
-
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+            ),
+            f"Account search for exposure ID {exposure_id}"
+        )
 
     def search_policies(
         self,
@@ -533,9 +481,9 @@ class PortfolioManager:
         """
         Search all policies within an EDM with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria. A page
-        holding only already-seen policy IDs stops the loop with a warning, on
-        the same reasoning as ``search_accounts_paginated``.
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search`` on the same reasoning as
+        ``search_accounts_paginated``.
 
         Args:
             exposure_id: Exposure ID
@@ -552,37 +500,16 @@ class PortfolioManager:
         """
         validate_positive_int(exposure_id, "exposure_id")
 
-        all_results: List[Dict[str, Any]] = []
-        seen_policy_ids: set = set()
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_policies(
+        return paginate_search(
+            lambda limit, offset: self.search_policies(
                 exposure_id=exposure_id,
                 filter=filter,
                 sort=sort,
                 limit=limit,
                 offset=offset
-            )
-
-            page_policy_ids = {policy.get('policyId') for policy in results if policy.get('policyId') is not None}
-            if page_policy_ids and page_policy_ids <= seen_policy_ids:
-                logger.warning(
-                    "Policy search for exposure ID %s returned an already-seen page at offset %s; stopping. Results may be incomplete.",
-                    exposure_id, offset
-                )
-                break
-            seen_policy_ids |= page_policy_ids
-
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+            ),
+            f"Policy search for exposure ID {exposure_id}"
+        )
 
     def search_locations(
         self,
@@ -680,9 +607,11 @@ class PortfolioManager:
         """
         Search all locations within an EDM with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria. A page
-        holding only already-seen location IDs stops the loop with a warning,
-        on the same reasoning as ``search_accounts_paginated``.
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search`` on the same reasoning as
+        ``search_accounts_paginated``. Because that helper detects progress by
+        hashing page content, it does not depend on this operation's nested
+        response shape being what the spec describes.
 
         Args:
             exposure_id: Exposure ID
@@ -700,42 +629,16 @@ class PortfolioManager:
         """
         validate_positive_int(exposure_id, "exposure_id")
 
-        all_results: List[Dict[str, Any]] = []
-        seen_location_ids: set = set()
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_locations(
+        return paginate_search(
+            lambda limit, offset: self.search_locations(
                 exposure_id=exposure_id,
                 filter=filter,
                 sort=sort,
                 limit=limit,
                 offset=offset
-            )
-
-            page_location_ids = set()
-            for item in results:
-                location_id = ((item.get('location') or {}).get('property') or {}).get('locationId')
-                if location_id is not None:
-                    page_location_ids.add(location_id)
-
-            if page_location_ids and page_location_ids <= seen_location_ids:
-                logger.warning(
-                    "Location search for exposure ID %s returned an already-seen page at offset %s; stopping. Results may be incomplete.",
-                    exposure_id, offset
-                )
-                break
-            seen_location_ids |= page_location_ids
-
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+            ),
+            f"Location search for exposure ID {exposure_id}"
+        )
 
     def add_filtered_accounts(
         self,

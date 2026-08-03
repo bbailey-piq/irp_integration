@@ -802,12 +802,11 @@ def search_accounts_by_portfolio_paginated(
 
 Retrieve all accounts within a portfolio with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. Because the
-API does not declare limit/offset for this operation, two guards bound
-the loop: a page larger than the requested limit means the server
-ignored pagination and already returned everything, and a page holding
-only already-seen account IDs means paging is not advancing. Both are
-logged as warnings.
+Fetches all pages of results matching the filter criteria. Paging is
+delegated to ``paginate_search``, which resolves what the API's
+``offset`` actually counts before trusting a second page — relevant
+here in particular, since this operation does not declare limit/offset
+at all and may ignore them.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -894,11 +893,11 @@ def search_accounts_paginated(
 
 Search all accounts within an EDM with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. A page
-holding only already-seen account IDs stops the loop with a warning:
-the API describes offset as a page number while its filtering guide
-describes it as a record offset, so a page that fails to advance is
-treated as broken paging rather than looped over.
+Fetches all pages of results matching the filter criteria. Paging is
+delegated to ``paginate_search``, which resolves what the API's
+``offset`` actually counts — the reference calls it a page number and
+the filtering guide calls it a record offset — before trusting a
+second page.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -996,9 +995,9 @@ def search_policies_paginated(
 
 Search all policies within an EDM with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. A page
-holding only already-seen policy IDs stops the loop with a warning, on
-the same reasoning as ``search_accounts_paginated``.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search`` on the same reasoning as
+``search_accounts_paginated``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -1097,9 +1096,11 @@ def search_locations_paginated(
 
 Search all locations within an EDM with automatic pagination.
 
-Fetches all pages of results matching the filter criteria. A page
-holding only already-seen location IDs stops the loop with a warning,
-on the same reasoning as ``search_accounts_paginated``.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search`` on the same reasoning as
+``search_accounts_paginated``. Because that helper detects progress by
+hashing page content, it does not depend on this operation's nested
+response shape being what the spec describes.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -4247,6 +4248,50 @@ Decode base64 credentials from MRI import file credentials response.
 
 **Raises:**
  - **IRPAPIError:**  If required fields missing or decoding fails
+
+#### `paginate_search`
+
+```python
+def paginate_search(
+    fetch: Callable[[int, int], List[Any]],
+    description: str,
+    limit: int = 100,
+    max_pages: int = 1000
+) -> List[Any]
+```
+
+Page through a limit/offset search operation until it is exhausted.
+
+The Risk Data API documents ``offset`` two ways: the operation reference
+calls it "number of the page ... starting at 0" while the filtering guide
+describes a record offset. The two readings agree on the first request and
+disagree on every one after it, so guessing risks returning one page out of
+many while looking like a clean finish. Instead of guessing, this helper
+asks the server. Once a full first page proves there is more to fetch, it
+requests ``offset=1`` and compares the result against the first page: a
+response repeating the first page's records means ``offset`` counts records
+(rows 1..limit), while one disjoint from it means ``offset`` counts pages
+(page 1). The answer is logged and used for the rest of the walk, so a
+single call against a live tenant also settles the question for good.
+
+Progress is tracked by hashing page content rather than by reading record
+IDs, so a page whose records carry no recognizable identifier still ends
+the walk instead of spinning. Any page identical to one already seen stops
+it with a warning, as does exceeding ``max_pages``, as does a page larger
+than ``limit`` — that last one means the operation ignored pagination
+altogether and the first response was already complete.
+
+**Arguments:**
+ - **fetch:**  Callable taking (limit, offset) and returning one page of results
+ - **description:**  Phrase naming the search, used in log messages
+ - **limit:**  Page size to request (default: 100)
+ - **max_pages:**  Hard ceiling on requests before giving up (default: 1000)
+
+**Returns:**
+> Every record the operation returned, in page order
+
+**Raises:**
+ - Whatever ``fetch`` raises, unchanged
 
 #### `extract_analysis_id_from_workflow_response`
 
