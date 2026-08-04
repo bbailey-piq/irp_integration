@@ -17,7 +17,7 @@ from .constants import (
 )
 from .exceptions import IRPAPIError, IRPValidationError, IRPReferenceDataError
 from .validators import validate_list_not_empty, validate_non_empty_string, validate_positive_int, validate_non_negative_float, validate_non_negative_int
-from .utils import extract_id_from_location_header
+from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
     from . import IRPClient
@@ -82,7 +82,8 @@ class TreatyManager:
         """
         Search all treaties for a given exposure ID with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria.
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search``.
 
         Args:
             exposure_id: Exposure ID
@@ -93,24 +94,20 @@ class TreatyManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If API request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 
-        all_results = []
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_treaties(exposure_id=exposure_id, filter=filter, limit=limit, offset=offset)
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+        return paginate_search(
+            lambda limit, offset: self.search_treaties(
+                exposure_id=exposure_id,
+                filter=filter,
+                limit=limit,
+                offset=offset
+            ),
+            f"Treaty search for exposure ID {exposure_id}"
+        )
 
 
     def create_treaties(self, treaty_data_list: List[Dict[str, Any]]) -> List[int]:

@@ -18,7 +18,7 @@ from .constants import (
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
-from .utils import extract_id_from_location_header
+from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
     from . import IRPClient
@@ -1177,7 +1177,8 @@ class AnalysisManager:
         """
         Search all analysis results with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria.
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search``.
 
         Args:
             filter: Optional filter string (default: "")
@@ -1186,22 +1187,17 @@ class AnalysisManager:
             Complete list of all matching analysis results across all pages
 
         Raises:
-            IRPAPIError: If search fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
-        all_results = []
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_analyses(filter=filter, limit=limit, offset=offset)
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+        return paginate_search(
+            lambda limit, offset: self.search_analyses(
+                filter=filter,
+                limit=limit,
+                offset=offset
+            ),
+            "Analysis results search"
+        )
 
     def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> Dict[str, Any]:
         """

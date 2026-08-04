@@ -441,13 +441,18 @@ def search_edms_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all EDMs with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string for EDM names
 
 **Returns:**
 > Complete list of all matching EDMs across all pages
+
+**Raises:**
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `submit_create_edm_job`
 
@@ -1545,7 +1550,8 @@ def search_treaties_paginated(self, exposure_id: int, filter: str = '') -> List[
 
 Search all treaties for a given exposure ID with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -1556,7 +1562,8 @@ Fetches all pages of results matching the filter criteria.
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If API request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `create_treaties`
 
@@ -2106,7 +2113,8 @@ def search_analyses_paginated(self, filter: str = '') -> List[Dict[str, Any]]
 
 Search all analysis results with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **filter:**  Optional filter string (default: "")
@@ -2115,7 +2123,8 @@ Fetches all pages of results matching the filter criteria.
 > Complete list of all matching analysis results across all pages
 
 **Raises:**
- - **IRPAPIError:**  If search fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `get_analysis_by_name`
 
@@ -2556,7 +2565,9 @@ def search_databases_paginated(self, server_name: str, filter: str = '') -> List
 
 Search all databases on a server with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. Note that each page re-resolves the server name to
+a server ID, as the single-page call does.
 
 **Arguments:**
  - **server_name:**  Name of the database server
@@ -2566,7 +2577,8 @@ Fetches all pages of results matching the filter criteria.
 > Complete list of all matching database records across all pages
 
 **Raises:**
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `submit_delete_rdm_job`
 

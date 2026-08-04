@@ -9,7 +9,7 @@ import os
 import time
 from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 
-from .utils import extract_id_from_location_header
+from .utils import extract_id_from_location_header, paginate_search
 from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORKFLOW_COMPLETED_STATUSES, DELETE_RDM, GET_DATABRIDGE_JOB, UPDATE_GROUP_ACCESS, SEARCH_IMPORTED_RDMS, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError
 from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists
@@ -439,7 +439,9 @@ class RDMManager:
         """
         Search all databases on a server with automatic pagination.
 
-        Fetches all pages of results matching the filter criteria.
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search``. Note that each page re-resolves the server name to
+        a server ID, as the single-page call does.
 
         Args:
             server_name: Name of the database server
@@ -449,22 +451,18 @@ class RDMManager:
             Complete list of all matching database records across all pages
 
         Raises:
-            IRPAPIError: If request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
-        all_results = []
-        offset = 0
-        limit = 100
-
-        while True:
-            results = self.search_databases(server_name=server_name, filter=filter, limit=limit, offset=offset)
-            all_results.extend(results)
-
-            # If we got fewer results than the limit, we've reached the end
-            if len(results) < limit:
-                break
-            offset += limit
-
-        return all_results
+        return paginate_search(
+            lambda limit, offset: self.search_databases(
+                server_name=server_name,
+                filter=filter,
+                limit=limit,
+                offset=offset
+            ),
+            f"Database search on server '{server_name}'"
+        )
 
     def submit_delete_rdm_job(self, rdm_name: str, server_name: str = "databridge-1") -> str:
         """
