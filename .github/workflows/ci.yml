@@ -20,11 +20,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install package
-        run: pip install .
+      - name: Install package with test extra
+        run: pip install ".[test]"
 
       - name: Smoke test - verify import
         run: python -c "from irp_integration import IRPClient; print(f'irp_integration imported successfully on Python {__import__(\"sys\").version}')"
+
+      # Blocking. The suite is offline — no test builds a real Client — so it
+      # needs no RISK_MODELER_* variables and no tenant access.
+      - name: Unit tests
+        run: pytest
 
   lint:
     name: Lint (advisory)
