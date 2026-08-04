@@ -131,6 +131,11 @@ class PortfolioManager:
 
         Returns:
             Complete list of all matching portfolios across all pages
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 
@@ -244,7 +249,8 @@ class PortfolioManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
         validate_positive_int(portfolio_id, "portfolio_id")
@@ -372,7 +378,8 @@ class PortfolioManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 
@@ -519,7 +526,8 @@ class PortfolioManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 
@@ -671,7 +679,8 @@ class PortfolioManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 

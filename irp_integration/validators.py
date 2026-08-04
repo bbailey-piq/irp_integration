@@ -10,6 +10,41 @@ from typing import Any, List
 from .exceptions import IRPValidationError
 
 
+def _is_int(value: Any) -> bool:
+    """
+    Report whether a value is an integer, counting ``bool`` as not one.
+
+    ``bool`` subclasses ``int`` in Python, so a plain ``isinstance`` check
+    accepts ``True`` and ``False`` wherever an integer is wanted. Neither is a
+    meaningful account ID, exposure ID or page size, and both serialize to JSON
+    ``true``/``false`` rather than to a number — so a request body carrying
+    ``"accountsToAdd": [true]`` would reach the API instead of being rejected
+    here.
+
+    Args:
+        value: Value to test
+
+    Returns:
+        True if value is an int and not a bool
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    """
+    Report whether a value is an int or float, counting ``bool`` as neither.
+
+    See ``_is_int`` for why ``bool`` is excluded.
+
+    Args:
+        value: Value to test
+
+    Returns:
+        True if value is an int or float and not a bool
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def validate_non_empty_string(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-empty string.
@@ -33,6 +68,9 @@ def validate_positive_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive integer.
 
+    ``True`` and ``False`` are rejected. Python treats them as integers, but
+    neither is a meaningful exposure ID, portfolio ID or page size.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -40,7 +78,7 @@ def validate_positive_int(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a positive integer
     """
-    if not isinstance(value, int):
+    if not _is_int(value):
         raise IRPValidationError(
             f"{param_name} must be an integer, got {type(value).__name__}"
         )
@@ -54,6 +92,9 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative integer.
 
+    ``True`` and ``False`` are rejected. Python treats them as integers, but
+    neither is a meaningful offset or count.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -61,7 +102,7 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a non-negative integer
     """
-    if not isinstance(value, int):
+    if not _is_int(value):
         raise IRPValidationError(
             f"{param_name} must be an integer, got {type(value).__name__}"
         )
@@ -146,6 +187,10 @@ def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
     An empty list is accepted; callers that require at least one element
     should enforce that themselves.
 
+    ``True`` and ``False`` are rejected. Python treats them as integers, and
+    this is the list that becomes ``markedAccounts`` or ``accountsToAdd``, so
+    accepting ``True`` would send JSON ``true`` where an account ID belongs.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -159,7 +204,7 @@ def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
             f"{param_name} must be a list, got {type(value).__name__}"
         )
     for index, item in enumerate(value):
-        if not isinstance(item, int):
+        if not _is_int(item):
             raise IRPValidationError(
                 f"{param_name}[{index}] must be an integer, got {type(item).__name__}"
             )
@@ -173,6 +218,9 @@ def validate_positive_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive float.
 
+    An int is accepted. ``True`` and ``False`` are not: Python treats them as
+    integers, and neither is a meaningful number here.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -180,7 +228,7 @@ def validate_positive_float(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a positive float
     """
-    if not isinstance(value, (float, int)):
+    if not _is_number(value):
         raise IRPValidationError(
             f"{param_name} must be a float, got {type(value).__name__}"
         )
@@ -193,6 +241,10 @@ def validate_non_negative_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative float.
 
+    An int is accepted. ``True`` and ``False`` are not: Python treats them as
+    integers, and the treaty financial terms this guards would then send JSON
+    ``true`` where a limit or percentage belongs.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -200,7 +252,7 @@ def validate_non_negative_float(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a non-negative float
     """
-    if not isinstance(value, (float, int)):
+    if not _is_number(value):
         raise IRPValidationError(
             f"{param_name} must be a float, got {type(value).__name__}"
         )

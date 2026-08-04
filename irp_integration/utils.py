@@ -161,16 +161,25 @@ def paginate_search(
     held on the account, policy and location searches across three exposures,
     with no contrary observation.
 
-    Every one of those observations came from a single tenant (``prodmgmt`` on
-    ``api-euw1``, bearer auth), so the guards below are load-bearing rather
-    than decoration. Progress is tracked by hashing page content rather than by
-    reading record IDs, so a response shape that differs from the spec, or
-    records carrying no recognizable identifier, still end the walk instead of
-    spinning. Any page identical to one already seen stops it with a warning —
-    which is what a server that clamps or ignores an out-of-range ``offset``
-    would produce — as does exceeding ``max_pages``, as does a page larger than
-    ``limit``, that last one meaning the operation ignored pagination
-    altogether and the first response was already complete.
+    Every one of those observations came from one tenant in one region, so the
+    three guards below do real work rather than decorating the loop. Another
+    deployment may differ. Progress is tracked by hashing page content rather
+    than by reading record IDs, so a response shape that differs from the spec,
+    or records carrying no recognizable identifier, still end the walk instead
+    of spinning.
+
+    Two guards mean completeness could not be established, and both raise
+    ``IRPAPIError`` instead of returning the records accumulated so far: a page
+    identical to one already seen, which is what a server that clamps or ignores
+    an out-of-range ``offset`` would produce, and exhausting ``max_pages`` while
+    pages are still coming back full. Callers create portfolios out of these
+    results, so a truncated list returned as though it were complete builds a
+    sub-portfolio that is missing accounts and reports success. Raising is the
+    only way the caller finds out. The third guard, a page larger than ``limit``,
+    is not an error: it means the operation ignored pagination altogether and the
+    first response was already the whole result, so that page is returned.
+
+    An empty page and a page shorter than ``limit`` both end the walk normally.
 
     One failure mode is deliberately left uncovered: a server that genuinely
     treats ``offset`` as a page number *and* answers an out-of-range page with
@@ -182,7 +191,7 @@ def paginate_search(
 
     Args:
         fetch: Callable taking (limit, offset) and returning one page of results
-        description: Phrase naming the search, used in log messages
+        description: Phrase naming the search, used in log and error messages
         limit: Page size to request (default: 100)
         max_pages: Hard ceiling on requests before giving up (default: 1000)
 
@@ -190,6 +199,9 @@ def paginate_search(
         Every record the operation returned, in page order
 
     Raises:
+        IRPAPIError: If the walk cannot establish that it read every page,
+            because the operation repeated a page or because ``max_pages`` was
+            exhausted with pages still coming back full
         Whatever ``fetch`` raises, unchanged
     """
     first_page = fetch(limit, 0)
@@ -214,11 +226,11 @@ def paginate_search(
 
         fingerprint = _fingerprint(page)
         if fingerprint in seen_pages:
-            logger.warning(
-                "%s returned an already-seen page at offset %s; stopping. Results may be incomplete.",
-                description, offset
+            raise IRPAPIError(
+                f"{description} returned an already-seen page at offset {offset}, "
+                f"so pagination is not advancing and the {len(all_results)} records "
+                f"read so far cannot be shown to be the complete result"
             )
-            break
         seen_pages.add(fingerprint)
 
         all_results.extend(page)
@@ -227,9 +239,10 @@ def paginate_search(
         if len(page) < limit:
             break
     else:
-        logger.warning(
-            "%s hit the %s-page ceiling at limit %s; stopping. Results may be incomplete.",
-            description, max_pages, limit
+        raise IRPAPIError(
+            f"{description} was still returning full pages of {limit} at the "
+            f"{max_pages}-page ceiling, so the {len(all_results)} records read "
+            f"cannot be shown to be the complete result"
         )
 
     return all_results
