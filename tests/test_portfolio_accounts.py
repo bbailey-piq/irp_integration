@@ -41,6 +41,30 @@ class TestAddFilteredAccounts:
 
         assert client.calls == [], "an empty selection must cost no request"
 
+    def test_manage_existing_accounts_with_a_selection_is_refused(self, make_portfolio_manager):
+        manager, client, _ = make_portfolio_manager([])
+
+        with pytest.raises(IRPValidationError, match="would add nothing"):
+            manager.add_filtered_accounts(
+                42, 7, marked_accounts=[101], manage_existing_accounts=True
+            )
+
+        assert client.calls == [], (
+            "the API answers 200 and adds nothing, so this must not be sent"
+        )
+
+    def test_select_all_sends_the_flag(self, make_portfolio_manager, response):
+        manager, client, _ = make_portfolio_manager([response(200, has_body=False)])
+
+        manager.add_filtered_accounts(42, 7, select_all=True)
+
+        assert client.calls[0]['json'] == {
+            'selectAll': True,
+            'queryFilter': '',
+            'markedAccounts': [],
+            'manageExistingAccounts': False,
+        }
+
     def test_202_raises_rather_than_being_polled(self, make_portfolio_manager, response):
         manager, _, _ = make_portfolio_manager([
             response(202, headers={'location': 'https://api.example.invalid/workflows/9'})

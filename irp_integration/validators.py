@@ -14,12 +14,9 @@ def _is_int(value: Any) -> bool:
     """
     Report whether a value is an integer, counting ``bool`` as not one.
 
-    ``bool`` subclasses ``int`` in Python, so a plain ``isinstance`` check
-    accepts ``True`` and ``False`` wherever an integer is wanted. Neither is a
-    meaningful account ID, exposure ID or page size, and both serialize to JSON
-    ``true``/``false`` rather than to a number — so a request body carrying
-    ``"accountsToAdd": [true]`` would reach the API instead of being rejected
-    here.
+    ``bool`` subclasses ``int``, so a plain ``isinstance`` check would accept
+    ``True`` where an ID or a page size belongs and send JSON ``true`` to the
+    API.
 
     Args:
         value: Value to test
@@ -68,8 +65,7 @@ def validate_positive_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive integer.
 
-    ``True`` and ``False`` are rejected. Python treats them as integers, but
-    neither is a meaningful exposure ID, portfolio ID or page size.
+    ``bool`` is rejected; see ``_is_int``.
 
     Args:
         value: Value to validate
@@ -92,8 +88,7 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative integer.
 
-    ``True`` and ``False`` are rejected. Python treats them as integers, but
-    neither is a meaningful offset or count.
+    ``bool`` is rejected; see ``_is_int``.
 
     Args:
         value: Value to validate
@@ -116,9 +111,8 @@ def validate_max_length(value: Any, param_name: str, max_length: int) -> None:
     """
     Validate that a string is no longer than a server-side limit.
 
-    Raises rather than truncating on purpose: a silently shortened value can
-    collide two distinct inputs into one, which is harder to notice than a
-    rejected call.
+    Raises rather than truncating: a shortened value can collide two distinct
+    inputs into one.
 
     Args:
         value: Value to validate
@@ -187,9 +181,7 @@ def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
     An empty list is accepted; callers that require at least one element
     should enforce that themselves.
 
-    ``True`` and ``False`` are rejected. Python treats them as integers, and
-    this is the list that becomes ``markedAccounts`` or ``accountsToAdd``, so
-    accepting ``True`` would send JSON ``true`` where an account ID belongs.
+    ``bool`` is rejected; see ``_is_int``.
 
     Args:
         value: Value to validate
@@ -218,8 +210,7 @@ def validate_positive_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive float.
 
-    An int is accepted. ``True`` and ``False`` are not: Python treats them as
-    integers, and neither is a meaningful number here.
+    An int is accepted; ``bool`` is not.
 
     Args:
         value: Value to validate
@@ -241,9 +232,7 @@ def validate_non_negative_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative float.
 
-    An int is accepted. ``True`` and ``False`` are not: Python treats them as
-    integers, and the treaty financial terms this guards would then send JSON
-    ``true`` where a limit or percentage belongs.
+    An int is accepted; ``bool`` is not.
 
     Args:
         value: Value to validate

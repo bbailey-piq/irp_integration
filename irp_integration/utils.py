@@ -153,41 +153,33 @@ def paginate_search(
     Page through a limit/offset search operation until it is exhausted.
 
     ``offset`` counts records, so page N begins at ``N * limit``. The Risk Data
-    API documents this two ways — the operation reference calls ``offset``
-    "number of the page ... starting at 0" while the filtering guide describes a
-    record offset — and a probe run against a live tenant settled it in the
-    filtering guide's favour: ``offset=1`` returned 99 of the same 100 records
-    as ``offset=0``, and ``offset=100`` began where ``offset=1`` ended. That
-    held on the account, policy and location searches across three exposures,
-    with no contrary observation.
+    API documents this two ways — the operation reference calls it a page number,
+    the filtering guide a record offset — and the record reading is what the
+    account, policy and location searches were observed to do.
 
-    Every one of those observations came from one tenant in one region, so the
-    three guards below do real work rather than decorating the loop. Another
-    deployment may differ. Progress is tracked by hashing page content rather
-    than by reading record IDs, so a response shape that differs from the spec,
-    or records carrying no recognizable identifier, still end the walk instead
-    of spinning.
+    Four outcomes, because that reading comes from one deployment:
 
-    Two guards mean completeness could not be established, and both raise
-    ``IRPAPIError`` instead of returning the records accumulated so far: a page
-    identical to one already seen, which is what a server that clamps or ignores
-    an out-of-range ``offset`` would produce, and exhausting ``max_pages`` while
-    pages are still coming back full. Callers create portfolios out of these
-    results, so a truncated list returned as though it were complete builds a
-    sub-portfolio that is missing accounts and reports success. Raising is the
-    only way the caller finds out. The third guard, a page larger than ``limit``,
-    is not an error: it means the operation ignored pagination altogether and the
-    first response was already the whole result, so that page is returned.
+    - A page larger than ``limit``: the operation ignored pagination and the
+      first response was already the whole result, which is returned as-is.
+    - An empty page, or one shorter than ``limit``: the walk ends normally.
+    - A page identical to one already seen: ``IRPAPIError``. That is what a
+      server clamping or ignoring an out-of-range ``offset`` produces. A
+      complete result of exactly ``limit`` records is indistinguishable from it
+      and raises too, which is the safe side to be wrong on — callers build
+      portfolios out of these results, so a list truncated silently would create
+      a sub-portfolio missing accounts and report success.
+    - ``max_pages`` exhausted with pages still full: ``IRPAPIError``. This caps
+      a read at ``max_pages * limit`` records.
 
-    An empty page and a page shorter than ``limit`` both end the walk normally.
+    Progress is tracked by hashing page content, not by reading record IDs, so a
+    response shape that differs from the spec still ends the walk rather than
+    spinning.
 
-    One failure mode is deliberately left uncovered: a server that genuinely
-    treats ``offset`` as a page number *and* answers an out-of-range page with
-    an empty list would stop after one page and look like a clean finish.
-    Distinguishing that costs an extra request on every multi-page walk, which
-    the evidence above does not justify. A caller that suspects it should
-    compare a result against a count the API did not produce rather than trust
-    a short read.
+    One failure mode is uncovered: a server that treats ``offset`` as a page
+    number *and* answers an out-of-range page with an empty list would stop after
+    one page and look like a clean finish. Detecting it costs a request on every
+    walk; a caller that suspects it should compare against a count the API did
+    not produce.
 
     Args:
         fetch: Callable taking (limit, offset) and returning one page of results
