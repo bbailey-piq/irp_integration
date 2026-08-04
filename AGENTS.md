@@ -11,9 +11,14 @@ authoritative guidance travels in the source itself — this file only points at
   `mri_import.py`, `treaty.py`, `analysis.py`, `rdm.py`, `reference_data.py`, etc.
 - **Generated API reference:** `docs/api.md` — regenerate with
   `python docs/generate_api_docs.py` (never edit by hand).
+- **Install, configuration, and environment variables:** `README.md`
+  (§Configuration, §Authentication, §Data Bridge Configuration).
 
 ## Contracts to respect (detailed in `client.py`)
 
+- **Every request goes through the client** — call `Client.request()` or
+  `Client.execute_workflow()`. Manager methods build the payload and read the
+  response; they do not construct their own `requests` call or session.
 - **Don't double-wrap retries** — the HTTP session already retries 429/5xx with
   exponential backoff across all methods.
 - **Check terminal status after polling** — a poll returns on any terminal state
@@ -30,6 +35,19 @@ authoritative guidance travels in the source itself — this file only points at
   package.
 - Advisory lint (config in `pyproject.toml`): `mypy irp_integration` and
   `ruff check irp_integration`.
+- Endpoint paths and status values come from `constants.py`, not from string
+  literals at the call site.
+- Resource IDs come from the `location` header — use
+  `extract_id_from_location_header()` in `utils.py`. Do not read the ID out of
+  the response body.
+- Validate arguments at function entry with the `validate_*` helpers in
+  `validators.py`.
+- Raise the exceptions defined in `exceptions.py`. Each message names what it
+  concerns — the EDM, portfolio, analysis, or job ID, and the status.
+- Imports go at the top of the module. Move an import into a function only to
+  break an import cycle.
+- Prefer the straightforward implementation over an abstraction that hides what
+  the API does.
 
 ## Writing Style
 
