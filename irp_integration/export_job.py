@@ -147,7 +147,7 @@ class ExportJobManager:
         if not download_url:
             raise IRPAPIError(f"No download URL found in export job {job_id}")
 
-        # Extract filename from URL path (e.g., "23530777_usfl_commercial_Losses.zip")
+        # Extract filename from URL path (e.g., "{analysisId}_{portfolioName}_Losses.zip")
         url_path = unquote(urlparse(download_url).path)
         filename = url_path.rsplit('/', 1)[-1]
         os.makedirs(output_dir, exist_ok=True)

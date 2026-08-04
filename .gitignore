@@ -1,6 +1,3 @@
-# Claude files
-CLAUDE.md
-
 # Env File
 .env
 
@@ -12,3 +9,8 @@ dist/
 build/
 *.egg-info/
 *.egg
+
+# Live-tenant probe suite. Deliberately untracked: setuptools-scm's file finder
+# puts every tracked file into the sdist, so committing this would publish the
+# probe scripts and their captured tenant output to PyPI.
+probes/

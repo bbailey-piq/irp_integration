@@ -731,7 +731,8 @@ def search_portfolios_paginated(self, exposure_id: int, filter: str = '') -> Lis
 
 Search all portfolios within an exposure with automatic pagination.
 
-Fetches all pages of results matching the filter criteria.
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
 
 **Arguments:**
  - **exposure_id:**  Exposure ID
@@ -740,20 +741,481 @@ Fetches all pages of results matching the filter criteria.
 **Returns:**
 > Complete list of all matching portfolios across all pages
 
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
 #### `search_accounts_by_portfolio`
 
 ```python
-def search_accounts_by_portfolio(self, exposure_id: int, portfolio_id: int) -> List[Dict[str, Any]]
+def search_accounts_by_portfolio(
+    self,
+    exposure_id: int,
+    portfolio_id: int,
+    filter: str = '',
+    sort: str = '',
+    limit: Optional[int] = None,
+    offset: Optional[int] = None
+) -> List[Dict[str, Any]]
 ```
 
 Retrieve accounts within a portfolio.
 
+Filterable properties are a closed list: accountid (the API's own
+spelling), accountName, accountNumber, branchName, cedantName,
+ownerName, producerName, underwriterName. Line of business and state are
+not among them; see ``search_policies`` and ``search_locations``.
+
 **Arguments:**
  - **exposure_id:**  Exposure ID
  - **portfolio_id:**  Portfolio ID
+ - **filter:**  Optional filter expression over the properties listed above
+ - **sort:**  Optional comma-delimited sort properties, each optionally
+   suffixed with ASC or DESC
+ - **limit:**  Maximum results per page; omitted from the request when
+   None, since the API does not declare limit/offset for this
+   operation (default: None)
+ - **offset:**  Offset for pagination; omitted from the request when None
+   (default: None)
 
 **Returns:**
 > List of account dicts
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_accounts_by_portfolio_paginated`
+
+```python
+def search_accounts_by_portfolio_paginated(
+    self,
+    exposure_id: int,
+    portfolio_id: int,
+    filter: str = '',
+    sort: str = ''
+) -> List[Dict[str, Any]]
+```
+
+Retrieve all accounts within a portfolio with automatic pagination.
+
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. This operation does not declare limit/offset, so a
+response larger than the requested limit means it ignored them and was
+already complete; ``paginate_search`` returns that response as-is.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
+ - **filter:**  Optional filter expression; see
+   ``search_accounts_by_portfolio`` for supported properties
+ - **sort:**  Optional comma-delimited sort properties
+
+**Returns:**
+> Complete list of all matching accounts across all pages
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+#### `search_accounts`
+
+```python
+def search_accounts(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search accounts across an entire EDM.
+
+Wider filter surface than the portfolio-scoped
+``search_accounts_by_portfolio``: adds locationsCount, tagIds,
+policyExpirationDate, stampDate, reportsCount, resultsCount, userId1-4
+and userText1-2 to the account properties.
+
+Filter grammar: ``property <operator> value``, where operator is one of
+=, !=, >, <, >=, <=, LIKE, NOT LIKE, IN, NOT IN, IS NULL, IS NOT NULL,
+combined with AND/OR. String literals are double-quoted, IN lists are
+parenthesised, and ``*`` is the wildcard. List operators are not
+supported on YYYY-MM-DD properties; use range comparisons instead.
+
+Line of business and state are not filterable here. Use
+``search_policies`` (LOB) and ``search_locations`` (admin1Code) for
+those selections and join back on accountId.
+
+The API's ``allowDeepFilters`` parameter is not exposed and is always
+sent as false. It widens the accepted filter set — ``lobName`` and
+``admin1Code`` stop returning 400 — but the widened filters then lie:
+on one EDM they returned zero rows with HTTP 200 where Data Bridge and
+``search_locations`` both counted 272 accounts. An empty result is
+legitimate for a valid filter, so a caller cannot tell the two apart.
+
+This operation cannot be scoped to a portfolio: ``portfolioId``,
+``portfolioName``, ``portInfoId``, ``portfolio`` and
+``portfolioNumber`` are all rejected. Listing account IDs is the only
+route, which meets the URL length limit described on
+``search_policies``.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression over the account properties
+ - **sort:**  Optional comma-delimited sort properties, each optionally
+   suffixed with ASC or DESC
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of account dicts
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_accounts_paginated`
+
+```python
+def search_accounts_paginated(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = ''
+) -> List[Dict[str, Any]]
+```
+
+Search all accounts within an EDM with automatic pagination.
+
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``, which documents what the API's ``offset`` counts
+and the guards around that.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression; see ``search_accounts`` for the
+   supported properties and grammar
+ - **sort:**  Optional comma-delimited sort properties
+
+**Returns:**
+> Complete list of all matching accounts across all pages
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+#### `search_policies`
+
+```python
+def search_policies(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search policies across an entire EDM.
+
+This is how a sub-portfolio breakout selects accounts by line of
+business. LOB is not filterable on any operation, but every policy
+carries both its account and its LOB, so scope the search to a
+portfolio's accounts and group the results client-side::
+
+    accounts = pm.search_accounts_by_portfolio_paginated(edm_id, portfolio_id)
+    ids = ','.join(str(account['accountId']) for account in accounts)
+    policies = pm.search_policies_paginated(edm_id, filter=f'accountId IN ({ids})')
+
+    by_lob: Dict[str, set] = {}
+    for policy in policies:
+        by_lob.setdefault(policy['lob']['lobName'], set()).add(policy['accountId'])
+
+Two traps in that loop. ``accountId`` is flat but ``lobName`` is nested
+under ``lob``, and reading the wrong key yields an empty grouping rather
+than an error. And an account writing three lines of business lands in
+all three sub-portfolios, because portfolios hold whole accounts.
+
+``lobId`` is sortable but not filterable, and filtering on it returns
+HTTP 500, not 400 — do not retry that 500 as transient.
+
+Chunking a long ``accountId IN (...)`` list is the caller's job.
+``filter`` travels in the URL and the server answers HTTP 431 past
+roughly 4,870 characters — budget in characters, not IDs, since
+seven-digit IDs fit about half as many as four-digit ones, and other
+predicates spend the same budget. 431 is a header limit that the bearer
+token shares, so treat the figure as this deployment's, not the API's.
+The alternative is to omit the filter and intersect against the
+portfolio's accounts client-side.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression; see ``search_accounts`` for the
+   grammar and the searchPolicies reference for the filterable
+   properties
+ - **sort:**  Optional comma-delimited sort properties, each optionally
+   suffixed with ASC or DESC
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of policy dicts, each carrying accountId and a nested
+> lob dict of {lobId, lobName, uri}
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_policies_paginated`
+
+```python
+def search_policies_paginated(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = ''
+) -> List[Dict[str, Any]]
+```
+
+Search all policies within an EDM with automatic pagination.
+
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression; see ``search_policies`` for the
+   supported properties
+ - **sort:**  Optional comma-delimited sort properties
+
+**Returns:**
+> Complete list of all matching policies across all pages
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+#### `search_locations`
+
+```python
+def search_locations(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search locations across an entire EDM.
+
+This is how a sub-portfolio breakout selects accounts by state or
+province, and unlike the LOB case it resolves server-side: admin1Code is
+filterable alongside accountId, so one query returns the locations in a
+state and their accounts are the accounts to add::
+
+    filter = f'accountId IN ({ids}) AND admin1Code = "FL"'
+    locations = pm.search_locations_paginated(edm_id, filter=filter)
+    account_ids = {
+        location['location']['property']['accountId'] for location in locations
+    }
+
+admin1 is the first-level administrative division, so non-US provinces
+and regions use the same attribute. admin1Code is not always a
+two-letter abbreviation — some EDMs carry numeric codes — so treat it as
+an opaque string rather than constructing codes.
+
+**Filter on admin1Code, not admin1Name.** admin1Name is a geocoding
+output: it is empty on every location until GeoHaz runs, and filtering
+on it before that returns zero rows with HTTP 200. A state selection
+built on admin1Name produces empty sub-portfolios and reports success.
+
+**A partial match admits the whole account.** An account with locations
+in three states lands in all three state sub-portfolios, so the
+sub-portfolios overlap and their TIV sums to more than the source
+portfolio's. Platform behavior, not something this method can filter
+around; how much it inflates depends on the book.
+
+Results are nested, and reading the wrong key returns a plausible empty
+result rather than an error. Each item is {location,
+propertyReference}::
+
+    row["location"]["property"]["accountId"]
+    row["location"]["property"]["locationId"]
+    row["location"]["address"]["admin1Code"]
+
+The URL-length limit on ``search_policies`` applies here too, and this
+operation meets it first: scoping a state selection to a source
+portfolio means listing that portfolio's account IDs, since no
+portfolio predicate is accepted anywhere (see ``search_accounts``).
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression; see ``search_accounts`` for the
+   grammar and the searchLocations reference for the filterable
+   properties
+ - **sort:**  Optional comma-delimited sort properties, each optionally
+   suffixed with ASC or DESC
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of location search item dicts, each wrapping a nested
+> location dict
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_locations_paginated`
+
+```python
+def search_locations_paginated(
+    self,
+    exposure_id: int,
+    filter: str = '',
+    sort: str = ''
+) -> List[Dict[str, Any]]
+```
+
+Search all locations within an EDM with automatic pagination.
+
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``. Because that helper detects progress by hashing
+page content, it does not depend on this operation's nested response
+shape being what the spec describes.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **filter:**  Optional filter expression; see ``search_locations`` for
+   the supported properties
+ - **sort:**  Optional comma-delimited sort properties
+
+**Returns:**
+> Complete list of all matching location search items across all
+> pages
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+#### `add_filtered_accounts`
+
+```python
+def add_filtered_accounts(
+    self,
+    exposure_id: int,
+    portfolio_id: int,
+    *,
+    marked_accounts: Optional[List[int]] = None,
+    query_filter: str = '',
+    select_all: bool = False,
+    manage_existing_accounts: bool = False
+) -> Dict[str, Any]
+```
+
+Add accounts to a portfolio by ID list, by query filter, or both.
+
+Wraps the synchronous ``manageFilteredAccounts`` operation. HTTP 200 is
+its only success status and it declares no response body, so an empty
+dict is returned on success; any other 2xx raises rather than being
+polled as a workflow.
+
+Prefer ``manage_portfolio_accounts`` for populating a portfolio from an
+account-ID list. This operation writes correctly and is idempotent, but
+it returns an empty object, so a caller cannot tell a populate that
+added everything from one that added nothing without reading the
+portfolio back.
+
+``selectAll`` adds every account matched by ``queryFilter`` — every
+account in the EDM when no filter is given — and overrides
+``markedAccounts``. ``manageExistingAccounts`` is a mode switch, not an
+upsert flag: it discards ``markedAccounts`` and ``queryFilter``, so it
+cannot add anything. Combining it with either is refused here rather
+than sent, since the API answers 200 and adds nothing. The grammar of
+``queryFilter`` is undocumented; it is transported verbatim.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
+ - **marked_accounts:**  Account IDs to add (default: None)
+ - **query_filter:**  Expression selecting the accounts to add, passed
+   through unmodified (default: "")
+ - **select_all:**  Add every account matched by query_filter, or every
+   account in the EDM when query_filter is empty. Overrides
+   marked_accounts (default: False)
+ - **manage_existing_accounts:**  Restrict the operation to accounts
+   already in the portfolio. Discards marked_accounts and
+   query_filter, so it cannot be combined with either
+   (default: False)
+
+**Returns:**
+> Parsed response body, or an empty dict when the response has none
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid, if no accounts were
+   selected by any means, or if manage_existing_accounts is
+   combined with a selection it would discard
+ - **IRPAPIError:**  If the request fails or returns an unexpected status
+
+#### `manage_portfolio_accounts`
+
+```python
+def manage_portfolio_accounts(
+    self,
+    exposure_id: int,
+    portfolio_id: int,
+    *,
+    accounts_to_add: Optional[List[int]] = None,
+    accounts_to_remove: Optional[List[int]] = None
+) -> Dict[str, Any]
+```
+
+Add and/or remove accounts on a portfolio by account ID.
+
+Wraps the synchronous ``managePortfolioAccounts`` operation. Unlike
+``add_filtered_accounts`` it reports what it did, which makes it the
+populate path for a sub-portfolio built from a known list of account
+IDs::
+
+    {"addAccounts": {"completed": 4, "total": 4},
+     "removeAccounts": {"completed": 0, "total": 0}}
+
+``completed`` counts IDs newly added, not IDs that ended up as members,
+so ``completed < total`` means "already present", not "failed". The call
+is idempotent, and a caller treating ``completed < total`` as an error
+will fail every healthy re-run. To confirm what a portfolio holds, read
+it back and compare against the intended ID list. The counts are logged;
+nothing here raises on a partial result.
+
+HTTP 200 is the only success status; any other 2xx raises. The API
+documents 403 as the caller lacking the "Edit Portfolios" action.
+
+**Arguments:**
+ - **exposure_id:**  Exposure ID
+ - **portfolio_id:**  Portfolio ID
+ - **accounts_to_add:**  Account IDs to add to the portfolio
+   (default: None)
+ - **accounts_to_remove:**  Account IDs to remove from the portfolio
+   (default: None)
+
+**Returns:**
+> Dict of add/remove counts as shown above, or an empty dict when the
+> response has no body
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid, or if both account
+   lists are empty
+ - **IRPAPIError:**  If the request fails or returns an unexpected status
 
 #### `create_portfolios`
 
@@ -766,16 +1228,18 @@ Create multiple portfolios.
 **Arguments:**
  - **portfolio_data_list:**  List of portfolio data dicts, each containing:
    - edm_name: str
-   - portfolio_name: str
-   - portfolio_number: str
+   - portfolio_name: str (at most 40 characters)
+   - portfolio_number: str (at most 20 characters)
    - description: str
 
 **Returns:**
 > List of portfolio IDs
 
 **Raises:**
- - **IRPValidationError:**  If portfolio_data_list is empty or invalid
- - **IRPAPIError:**  If portfolio creation fails or duplicate names exist
+ - **IRPValidationError:**  If portfolio_data_list is empty or invalid, if a
+   name field exceeds its length limit, or if any portfolio name is
+   already taken in its EDM
+ - **IRPAPIError:**  If portfolio creation fails
 
 #### `create_portfolio`
 
@@ -791,11 +1255,27 @@ def create_portfolio(
 
 Create new portfolio in EDM.
 
+Portfolio names must be unique within the EDM, enforced client-side: the
+name is looked up first and a match raises ``IRPValidationError`` with no
+POST sent. A caller adopting an existing portfolio by name should call
+``search_portfolios`` itself rather than catching that.
+
+``portfolioName`` is capped at 40 characters server-side and
+``portfolioNumber`` at 20. Both are validated before any request is sent,
+and neither is truncated — a shortened value can collide two distinct
+inputs into one identifier.
+
+Because ``portfolio_number`` defaults to ``portfolio_name``, a name over
+20 characters requires an explicit ``portfolio_number``. A
+``{source portfolio} - {breakout value}`` naming scheme hits this
+immediately.
+
 **Arguments:**
  - **edm_name:**  Name of EDM datasource
- - **portfolio_name:**  Name for new portfolio
- - **portfolio_number:**  Portfolio number; defaults to portfolio_name when
-   empty and is truncated to 20 characters (default: "")
+ - **portfolio_name:**  Name for new portfolio, at most 40 characters
+ - **portfolio_number:**  Portfolio number, at most 20 characters; defaults
+   to portfolio_name when empty, which then has to be within that
+   limit too (default: "")
  - **description:**  Portfolio description; an auto-generated description is
    used when empty (default: "")
 
@@ -803,8 +1283,10 @@ Create new portfolio in EDM.
 > Tuple of (portfolio_id, request_body) where request_body is the HTTP request payload
 
 **Raises:**
- - **IRPValidationError:**  If inputs are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPValidationError:**  If inputs are invalid, if either name field
+   exceeds its length limit, or if a portfolio with this name
+   already exists in the EDM
+ - **IRPAPIError:**  If the EDM lookup or the creation request fails
 
 #### `submit_geohaz_jobs`
 
@@ -846,6 +1328,15 @@ def submit_geohaz_job(
 
 Execute geocoding and/or hazard operations on portfolio.
 
+The returned job ID is served by ``/platform/geohaz/v1/jobs``, so poll it
+with ``poll_geohaz_job_to_completion`` (or ``get_geohaz_job`` for one
+status check), not with ``import_job.poll_import_job_to_completion``,
+which answers ``404 Invalid job id`` for a GeoHaz job that is running
+normally.
+
+Geocoding populates each location's ``admin1Name``, which arrives empty
+from an MRI import; see ``search_locations``.
+
 **Arguments:**
  - **portfolio_name:**  Name of the portfolio
  - **edm_name:**  Name of the EDM containing the portfolio
@@ -858,7 +1349,8 @@ Execute geocoding and/or hazard operations on portfolio.
    is used when None (default: None)
 
 **Returns:**
-> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+> Tuple of (job_id, request_body), where job_id is a GeoHaz job ID and
+> request_body is the HTTP request payload
 
 **Raises:**
  - **IRPValidationError:**  If inputs are invalid
@@ -3592,6 +4084,8 @@ def validate_positive_int(value: Any, param_name: str) -> None
 
 Validate that a value is a positive integer.
 
+``bool`` is rejected; see ``_is_int``.
+
 **Arguments:**
  - **value:**  Value to validate
  - **param_name:**  Parameter name for error message
@@ -3607,12 +4101,34 @@ def validate_non_negative_int(value: Any, param_name: str) -> None
 
 Validate that a value is a non-negative integer.
 
+``bool`` is rejected; see ``_is_int``.
+
 **Arguments:**
  - **value:**  Value to validate
  - **param_name:**  Parameter name for error message
 
 **Raises:**
  - **IRPValidationError:**  If value is not a non-negative integer
+
+#### `validate_max_length`
+
+```python
+def validate_max_length(value: Any, param_name: str, max_length: int) -> None
+```
+
+Validate that a string is no longer than a server-side limit.
+
+Raises rather than truncating: a shortened value can collide two distinct
+inputs into one.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+ - **max_length:**  Maximum permitted number of characters
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a string, or is longer than
+   max_length
 
 #### `validate_file_exists`
 
@@ -3644,6 +4160,27 @@ Validate that a value is a non-empty list.
 **Raises:**
  - **IRPValidationError:**  If value is not a non-empty list
 
+#### `validate_list_of_positive_ints`
+
+```python
+def validate_list_of_positive_ints(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a list containing only positive integers.
+
+An empty list is accepted; callers that require at least one element
+should enforce that themselves.
+
+``bool`` is rejected; see ``_is_int``.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a list, or any element is not a
+   positive integer
+
 #### `validate_positive_float`
 
 ```python
@@ -3651,6 +4188,8 @@ def validate_positive_float(value: Any, param_name: str) -> None
 ```
 
 Validate that a value is a positive float.
+
+An int is accepted; ``bool`` is not.
 
 **Arguments:**
  - **value:**  Value to validate
@@ -3666,6 +4205,8 @@ def validate_non_negative_float(value: Any, param_name: str) -> None
 ```
 
 Validate that a value is a non-negative float.
+
+An int is accepted; ``bool`` is not.
 
 **Arguments:**
  - **value:**  Value to validate
@@ -3760,6 +4301,63 @@ Decode base64 credentials from MRI import file credentials response.
 
 **Raises:**
  - **IRPAPIError:**  If required fields missing or decoding fails
+
+#### `paginate_search`
+
+```python
+def paginate_search(
+    fetch: Callable[[int, int], List[Any]],
+    description: str,
+    limit: int = 100,
+    max_pages: int = 1000
+) -> List[Any]
+```
+
+Page through a limit/offset search operation until it is exhausted.
+
+``offset`` counts records, so page N begins at ``N * limit``. The Risk Data
+API documents this two ways — the operation reference calls it a page number,
+the filtering guide a record offset — and the record reading is what the
+account, policy and location searches were observed to do.
+
+Four outcomes, because that reading comes from one deployment:
+
+- A page larger than ``limit``: the operation ignored pagination and the
+  first response was already the whole result, which is returned as-is.
+- An empty page, or one shorter than ``limit``: the walk ends normally.
+- A page identical to one already seen: ``IRPAPIError``. That is what a
+  server clamping or ignoring an out-of-range ``offset`` produces. A
+  complete result of exactly ``limit`` records is indistinguishable from it
+  and raises too, which is the safe side to be wrong on — callers build
+  portfolios out of these results, so a list truncated silently would create
+  a sub-portfolio missing accounts and report success.
+- ``max_pages`` exhausted with pages still full: ``IRPAPIError``. This caps
+  a read at ``max_pages * limit`` records.
+
+Progress is tracked by hashing page content, not by reading record IDs, so a
+response shape that differs from the spec still ends the walk rather than
+spinning.
+
+One failure mode is uncovered: a server that treats ``offset`` as a page
+number *and* answers an out-of-range page with an empty list would stop after
+one page and look like a clean finish. Detecting it costs a request on every
+walk; a caller that suspects it should compare against a count the API did
+not produce.
+
+**Arguments:**
+ - **fetch:**  Callable taking (limit, offset) and returning one page of results
+ - **description:**  Phrase naming the search, used in log and error messages
+ - **limit:**  Page size to request (default: 100)
+ - **max_pages:**  Hard ceiling on requests before giving up (default: 1000)
+
+**Returns:**
+> Every record the operation returned, in page order
+
+**Raises:**
+ - **IRPAPIError:**  If the walk cannot establish that it read every page,
+   because the operation repeated a page or because ``max_pages`` was
+   exhausted with pages still coming back full
+ - Whatever ``fetch`` raises, unchanged
 
 #### `extract_analysis_id_from_workflow_response`
 
