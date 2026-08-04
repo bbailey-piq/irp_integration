@@ -10,6 +10,38 @@ from typing import Any, List
 from .exceptions import IRPValidationError
 
 
+def _is_int(value: Any) -> bool:
+    """
+    Report whether a value is an integer, counting ``bool`` as not one.
+
+    ``bool`` subclasses ``int``, so a plain ``isinstance`` check would accept
+    ``True`` where an ID or a page size belongs and send JSON ``true`` to the
+    API.
+
+    Args:
+        value: Value to test
+
+    Returns:
+        True if value is an int and not a bool
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    """
+    Report whether a value is an int or float, counting ``bool`` as neither.
+
+    See ``_is_int`` for why ``bool`` is excluded.
+
+    Args:
+        value: Value to test
+
+    Returns:
+        True if value is an int or float and not a bool
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def validate_non_empty_string(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-empty string.
@@ -33,6 +65,8 @@ def validate_positive_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive integer.
 
+    ``bool`` is rejected; see ``_is_int``.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -40,7 +74,7 @@ def validate_positive_int(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a positive integer
     """
-    if not isinstance(value, int):
+    if not _is_int(value):
         raise IRPValidationError(
             f"{param_name} must be an integer, got {type(value).__name__}"
         )
@@ -54,6 +88,8 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative integer.
 
+    ``bool`` is rejected; see ``_is_int``.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -61,7 +97,7 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a non-negative integer
     """
-    if not isinstance(value, int):
+    if not _is_int(value):
         raise IRPValidationError(
             f"{param_name} must be an integer, got {type(value).__name__}"
         )
@@ -75,9 +111,8 @@ def validate_max_length(value: Any, param_name: str, max_length: int) -> None:
     """
     Validate that a string is no longer than a server-side limit.
 
-    Raises rather than truncating on purpose: a silently shortened value can
-    collide two distinct inputs into one, which is harder to notice than a
-    rejected call.
+    Raises rather than truncating: a shortened value can collide two distinct
+    inputs into one.
 
     Args:
         value: Value to validate
@@ -146,6 +181,8 @@ def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
     An empty list is accepted; callers that require at least one element
     should enforce that themselves.
 
+    ``bool`` is rejected; see ``_is_int``.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -159,7 +196,7 @@ def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
             f"{param_name} must be a list, got {type(value).__name__}"
         )
     for index, item in enumerate(value):
-        if not isinstance(item, int):
+        if not _is_int(item):
             raise IRPValidationError(
                 f"{param_name}[{index}] must be an integer, got {type(item).__name__}"
             )
@@ -173,6 +210,8 @@ def validate_positive_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a positive float.
 
+    An int is accepted; ``bool`` is not.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -180,7 +219,7 @@ def validate_positive_float(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a positive float
     """
-    if not isinstance(value, (float, int)):
+    if not _is_number(value):
         raise IRPValidationError(
             f"{param_name} must be a float, got {type(value).__name__}"
         )
@@ -193,6 +232,8 @@ def validate_non_negative_float(value: Any, param_name: str) -> None:
     """
     Validate that a value is a non-negative float.
 
+    An int is accepted; ``bool`` is not.
+
     Args:
         value: Value to validate
         param_name: Parameter name for error message
@@ -200,7 +241,7 @@ def validate_non_negative_float(value: Any, param_name: str) -> None:
     Raises:
         IRPValidationError: If value is not a non-negative float
     """
-    if not isinstance(value, (float, int)):
+    if not _is_number(value):
         raise IRPValidationError(
             f"{param_name} must be a float, got {type(value).__name__}"
         )
