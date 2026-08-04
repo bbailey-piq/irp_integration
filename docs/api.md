@@ -741,6 +741,11 @@ Fetches all pages of results matching the filter criteria, paging via
 **Returns:**
 > Complete list of all matching portfolios across all pages
 
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
 #### `search_accounts_by_portfolio`
 
 ```python
@@ -821,7 +826,8 @@ complete.
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `search_accounts`
 
@@ -915,7 +921,8 @@ and the guards around that.
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `search_policies`
 
@@ -1037,7 +1044,8 @@ Fetches all pages of results matching the filter criteria, paging via
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `search_locations`
 
@@ -1164,7 +1172,8 @@ shape being what the spec describes.
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `add_filtered_accounts`
 
@@ -4162,6 +4171,9 @@ def validate_positive_int(value: Any, param_name: str) -> None
 
 Validate that a value is a positive integer.
 
+``True`` and ``False`` are rejected. Python treats them as integers, but
+neither is a meaningful exposure ID, portfolio ID or page size.
+
 **Arguments:**
  - **value:**  Value to validate
  - **param_name:**  Parameter name for error message
@@ -4176,6 +4188,9 @@ def validate_non_negative_int(value: Any, param_name: str) -> None
 ```
 
 Validate that a value is a non-negative integer.
+
+``True`` and ``False`` are rejected. Python treats them as integers, but
+neither is a meaningful offset or count.
 
 **Arguments:**
  - **value:**  Value to validate
@@ -4246,6 +4261,10 @@ Validate that a value is a list containing only positive integers.
 An empty list is accepted; callers that require at least one element
 should enforce that themselves.
 
+``True`` and ``False`` are rejected. Python treats them as integers, and
+this is the list that becomes ``markedAccounts`` or ``accountsToAdd``, so
+accepting ``True`` would send JSON ``true`` where an account ID belongs.
+
 **Arguments:**
  - **value:**  Value to validate
  - **param_name:**  Parameter name for error message
@@ -4262,6 +4281,9 @@ def validate_positive_float(value: Any, param_name: str) -> None
 
 Validate that a value is a positive float.
 
+An int is accepted. ``True`` and ``False`` are not: Python treats them as
+integers, and neither is a meaningful number here.
+
 **Arguments:**
  - **value:**  Value to validate
  - **param_name:**  Parameter name for error message
@@ -4276,6 +4298,10 @@ def validate_non_negative_float(value: Any, param_name: str) -> None
 ```
 
 Validate that a value is a non-negative float.
+
+An int is accepted. ``True`` and ``False`` are not: Python treats them as
+integers, and the treaty financial terms this guards would then send JSON
+``true`` where a limit or percentage belongs.
 
 **Arguments:**
  - **value:**  Value to validate
@@ -4393,16 +4419,25 @@ as ``offset=0``, and ``offset=100`` began where ``offset=1`` ended. That
 held on the account, policy and location searches across three exposures,
 with no contrary observation.
 
-Every one of those observations came from a single tenant (``prodmgmt`` on
-``api-euw1``, bearer auth), so the guards below are load-bearing rather
-than decoration. Progress is tracked by hashing page content rather than by
-reading record IDs, so a response shape that differs from the spec, or
-records carrying no recognizable identifier, still end the walk instead of
-spinning. Any page identical to one already seen stops it with a warning —
-which is what a server that clamps or ignores an out-of-range ``offset``
-would produce — as does exceeding ``max_pages``, as does a page larger than
-``limit``, that last one meaning the operation ignored pagination
-altogether and the first response was already complete.
+Every one of those observations came from one tenant in one region, so the
+three guards below do real work rather than decorating the loop. Another
+deployment may differ. Progress is tracked by hashing page content rather
+than by reading record IDs, so a response shape that differs from the spec,
+or records carrying no recognizable identifier, still end the walk instead
+of spinning.
+
+Two guards mean completeness could not be established, and both raise
+``IRPAPIError`` instead of returning the records accumulated so far: a page
+identical to one already seen, which is what a server that clamps or ignores
+an out-of-range ``offset`` would produce, and exhausting ``max_pages`` while
+pages are still coming back full. Callers create portfolios out of these
+results, so a truncated list returned as though it were complete builds a
+sub-portfolio that is missing accounts and reports success. Raising is the
+only way the caller finds out. The third guard, a page larger than ``limit``,
+is not an error: it means the operation ignored pagination altogether and the
+first response was already the whole result, so that page is returned.
+
+An empty page and a page shorter than ``limit`` both end the walk normally.
 
 One failure mode is deliberately left uncovered: a server that genuinely
 treats ``offset`` as a page number *and* answers an out-of-range page with
@@ -4414,7 +4449,7 @@ a short read.
 
 **Arguments:**
  - **fetch:**  Callable taking (limit, offset) and returning one page of results
- - **description:**  Phrase naming the search, used in log messages
+ - **description:**  Phrase naming the search, used in log and error messages
  - **limit:**  Page size to request (default: 100)
  - **max_pages:**  Hard ceiling on requests before giving up (default: 1000)
 
@@ -4422,6 +4457,9 @@ a short read.
 > Every record the operation returned, in page order
 
 **Raises:**
+ - **IRPAPIError:**  If the walk cannot establish that it read every page,
+   because the operation repeated a page or because ``max_pages`` was
+   exhausted with pages still coming back full
  - Whatever ``fetch`` raises, unchanged
 
 #### `extract_analysis_id_from_workflow_response`
