@@ -210,6 +210,10 @@ class EDMManager:
 
         Returns:
             Complete list of all matching EDMs across all pages
+
+        Raises:
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         return paginate_search(
             lambda limit, offset: self.search_edms(

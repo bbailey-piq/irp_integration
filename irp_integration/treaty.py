@@ -94,7 +94,8 @@ class TreatyManager:
 
         Raises:
             IRPValidationError: If parameters are invalid
-            IRPAPIError: If API request fails
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
         """
         validate_positive_int(exposure_id, "exposure_id")
 

@@ -450,6 +450,10 @@ Fetches all pages of results matching the filter criteria, paging via
 **Returns:**
 > Complete list of all matching EDMs across all pages
 
+**Raises:**
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
 #### `submit_create_edm_job`
 
 ```python
@@ -1558,7 +1562,8 @@ Fetches all pages of results matching the filter criteria, paging via
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
- - **IRPAPIError:**  If API request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `create_treaties`
 
@@ -2118,7 +2123,8 @@ Fetches all pages of results matching the filter criteria, paging via
 > Complete list of all matching analysis results across all pages
 
 **Raises:**
- - **IRPAPIError:**  If search fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `get_analysis_by_name`
 
@@ -2571,7 +2577,8 @@ a server ID, as the single-page call does.
 > Complete list of all matching database records across all pages
 
 **Raises:**
- - **IRPAPIError:**  If request fails
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
 
 #### `submit_delete_rdm_job`
 
