@@ -35,7 +35,8 @@ databridge = ["pyodbc>=4.0.0", "pandas>=1.5.0", "numpy>=1.23.0"]
 # module paths shift between releases (see _normalize_types in the generator).
 # These pins only apply to the doc/dev toolchain; the databridge extra keeps its
 # looser floors for end users.
-dev = ["mypy", "ruff", "pdoc==16.0.*", "pandas==2.3.*", "numpy==2.3.*"]
+dev = ["mypy", "ruff", "pytest>=8.0", "pdoc==16.0.*", "pandas==2.3.*", "numpy==2.3.*"]
+test = ["pytest>=8.0"]
 
 [project.urls]
 Homepage = "https://github.com/premiumiq/irp-integration"
@@ -48,6 +49,13 @@ include = ["irp_integration*"]
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The suite is offline: no test constructs a real Client, so none of the
+# RISK_MODELER_* variables are read. A developer's populated .env cannot change a
+# result, and CI needs no secrets to run it.
+addopts = "-q"
 
 [tool.mypy]
 python_version = "3.10"
