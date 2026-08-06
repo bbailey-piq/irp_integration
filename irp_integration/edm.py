@@ -11,7 +11,7 @@ import time
 from typing import Dict, Any, List, Tuple, TYPE_CHECKING
 from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
-from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists
+from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists, validate_import_file_extension
 from .utils import extract_id_from_location_header, paginate_search
 from .s3 import S3Manager
 
@@ -539,12 +539,16 @@ class EDMManager:
         2. Create or get existing exposure set
         3. Validate the EDM name is unique
         4. Create import folder (get S3 credentials)
-        5. Upload EDM .bak file to S3
+        5. Upload the EDM database file to S3
         6. Submit import job
+
+        The import folder's ``properties.fileExtension`` is read from
+        ``edm_file_path``, so a .bak and a .mdf file are both imported by
+        passing the path.
 
         Args:
             edm_name: Name for the EDM
-            edm_file_path: Path to the .bak file to import
+            edm_file_path: Path to the .bak or .mdf file to import
             server_name: Database server name (default: "sql-instance-1")
 
         Returns:
@@ -557,6 +561,7 @@ class EDMManager:
         """
         validate_non_empty_string(edm_name, "edm_name")
         validate_file_exists(edm_file_path, "edm_file_path")
+        file_extension = validate_import_file_extension(edm_file_path, "edm_file_path")
         validate_non_empty_string(server_name, "server_name")
 
         logger.info("Submitting EDM import job for '%s'", edm_name)
@@ -591,7 +596,7 @@ class EDMManager:
         folder_data = {
             "folderType": "EDM",
             "properties": {
-                "fileExtension": "bak"
+                "fileExtension": file_extension
             }
         }
         response = self.client.request('POST', CREATE_IMPORT_FOLDER, json=folder_data)
