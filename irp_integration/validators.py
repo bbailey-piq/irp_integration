@@ -7,6 +7,7 @@ IRPValidationError exceptions when validation fails.
 
 import os
 from typing import Any, List
+from .constants import IMPORT_FILE_EXTENSIONS
 from .exceptions import IRPValidationError
 
 
@@ -153,6 +154,34 @@ def validate_file_exists(file_path: str, param_name: str = "file_path") -> None:
         raise IRPValidationError(
             f"{param_name} is not a file: {file_path}"
         )
+
+
+def validate_import_file_extension(
+    file_path: str,
+    param_name: str = "file_path"
+) -> str:
+    """
+    Validate that a path names a database file an import job accepts.
+
+    Args:
+        file_path: Path to the database file
+        param_name: Parameter name for error message
+
+    Returns:
+        The extension without its leading dot, lowercased, in the form
+        ``properties.fileExtension`` expects: "bak" or "mdf"
+
+    Raises:
+        IRPValidationError: If the extension is not one of
+            IMPORT_FILE_EXTENSIONS
+    """
+    extension = os.path.splitext(file_path)[1].lstrip('.').lower()
+    if extension not in IMPORT_FILE_EXTENSIONS:
+        accepted = ", ".join(f".{ext}" for ext in IMPORT_FILE_EXTENSIONS)
+        raise IRPValidationError(
+            f"{param_name} must name a {accepted} file, got: {file_path}"
+        )
+    return extension
 
 
 def validate_list_not_empty(value: Any, param_name: str) -> None:

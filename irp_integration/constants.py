@@ -45,6 +45,10 @@ SUBMIT_IMPORT_JOB = '/platform/import/v1/jobs'
 GET_IMPORT_JOB = '/platform/import/v1/jobs/{jobId}'
 SEARCH_IMPORTED_RDMS = '/platform/riskdata/v1/analyses/imported-rdms'
 
+# Database file extensions accepted by EDM and RDM import jobs, as
+# properties.fileExtension expects them — no leading dot, lowercase.
+IMPORT_FILE_EXTENSIONS = ("bak", "mdf")
+
 # Portfolio endpoints
 SEARCH_PORTFOLIOS = '/platform/riskdata/v1/exposures/{exposureId}/portfolios'
 SEARCH_ACCOUNTS_BY_PORTFOLIO = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/accounts'

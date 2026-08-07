@@ -62,13 +62,13 @@ class ImportJobManager:
 
                 For EDM (routed to EDMManager.submit_edm_import_job):
                     edm_name (str): Name for the EDM
-                    edm_file_path (str): Path to the .bak file
+                    edm_file_path (str): Path to the .bak or .mdf file
                     server_name (str): Database server name (default: "sql-instance-1")
 
                 For RDM (routed to RDMManager.submit_rdm_import_job):
                     rdm_name (str): Name for the RDM
                     edm_name (str): Name of the target EDM
-                    rdm_file_path (str): Path to the .bak file
+                    rdm_file_path (str): Path to the .bak or .mdf file
 
                 For MRI (routed to MRIImportManager.submit_mri_import_job):
                     edm_name (str): Target EDM name

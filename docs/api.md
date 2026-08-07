@@ -628,12 +628,16 @@ This method handles the complete EDM import workflow:
 2. Create or get existing exposure set
 3. Validate the EDM name is unique
 4. Create import folder (get S3 credentials)
-5. Upload EDM .bak file to S3
+5. Upload the EDM database file to S3
 6. Submit import job
+
+The import folder's ``properties.fileExtension`` is read from
+``edm_file_path``, so a .bak and a .mdf file are both imported by
+passing the path.
 
 **Arguments:**
  - **edm_name:**  Name for the EDM
- - **edm_file_path:**  Path to the .bak file to import
+ - **edm_file_path:**  Path to the .bak or .mdf file to import
  - **server_name:**  Database server name (default: "sql-instance-1")
 
 **Returns:**
@@ -2708,13 +2712,17 @@ Submit RDM import job with S3 file upload.
 This method handles the complete RDM import workflow:
 1. Search EDMs to get the resource URI
 2. Create import folder (get S3 credentials)
-3. Upload RDM .bak file to S3
+3. Upload the RDM database file to S3
 4. Submit import job
+
+The import folder's ``properties.fileExtension`` is read from
+``rdm_file_path``, so a .bak and a .mdf file are both imported by
+passing the path.
 
 **Arguments:**
  - **rdm_name:**  Name for the imported RDM
  - **edm_name:**  Name of the EDM to import into
- - **rdm_file_path:**  Path to the .bak file to import
+ - **rdm_file_path:**  Path to the .bak or .mdf file to import
 
 **Returns:**
 > Tuple of (job_id, request_body) where request_body is the HTTP request payload
@@ -2882,13 +2890,13 @@ Submit an import job, routing to the appropriate manager based on type.
 
    For EDM (routed to EDMManager.submit_edm_import_job):
        edm_name (str): Name for the EDM
-       edm_file_path (str): Path to the .bak file
+       edm_file_path (str): Path to the .bak or .mdf file
        server_name (str): Database server name (default: "sql-instance-1")
 
    For RDM (routed to RDMManager.submit_rdm_import_job):
        rdm_name (str): Name for the RDM
        edm_name (str): Name of the target EDM
-       rdm_file_path (str): Path to the .bak file
+       rdm_file_path (str): Path to the .bak or .mdf file
 
    For MRI (routed to MRIImportManager.submit_mri_import_job):
        edm_name (str): Target EDM name
@@ -4156,6 +4164,26 @@ Validate that a file exists at the given path.
 
 **Raises:**
  - **IRPValidationError:**  If file does not exist
+
+#### `validate_import_file_extension`
+
+```python
+def validate_import_file_extension(file_path: str, param_name: str = 'file_path') -> str
+```
+
+Validate that a path names a database file an import job accepts.
+
+**Arguments:**
+ - **file_path:**  Path to the database file
+ - **param_name:**  Parameter name for error message
+
+**Returns:**
+> The extension without its leading dot, lowercased, in the form
+> ``properties.fileExtension`` expects: "bak" or "mdf"
+
+**Raises:**
+ - **IRPValidationError:**  If the extension is not one of
+   IMPORT_FILE_EXTENSIONS
 
 #### `validate_list_not_empty`
 

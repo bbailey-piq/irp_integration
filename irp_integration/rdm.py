@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 from .utils import extract_id_from_location_header, paginate_search
 from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORKFLOW_COMPLETED_STATUSES, DELETE_RDM, GET_DATABRIDGE_JOB, UPDATE_GROUP_ACCESS, SEARCH_IMPORTED_RDMS, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError
-from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists
+from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists, validate_import_file_extension
 from .s3 import S3Manager
 
 if TYPE_CHECKING:
@@ -684,13 +684,17 @@ class RDMManager:
         This method handles the complete RDM import workflow:
         1. Search EDMs to get the resource URI
         2. Create import folder (get S3 credentials)
-        3. Upload RDM .bak file to S3
+        3. Upload the RDM database file to S3
         4. Submit import job
+
+        The import folder's ``properties.fileExtension`` is read from
+        ``rdm_file_path``, so a .bak and a .mdf file are both imported by
+        passing the path.
 
         Args:
             rdm_name: Name for the imported RDM
             edm_name: Name of the EDM to import into
-            rdm_file_path: Path to the .bak file to import
+            rdm_file_path: Path to the .bak or .mdf file to import
 
         Returns:
             Tuple of (job_id, request_body) where request_body is the HTTP request payload
@@ -703,6 +707,7 @@ class RDMManager:
         validate_non_empty_string(rdm_name, "rdm_name")
         validate_non_empty_string(edm_name, "edm_name")
         validate_file_exists(rdm_file_path, "rdm_file_path")
+        file_extension = validate_import_file_extension(rdm_file_path, "rdm_file_path")
 
         s3_manager = S3Manager()
 
@@ -719,7 +724,7 @@ class RDMManager:
         folder_data = {
             "folderType": "RDM",
             "properties": {
-                "fileExtension": "bak"
+                "fileExtension": file_extension
             }
         }
         response = self.client.request('POST', CREATE_IMPORT_FOLDER, json=folder_data)
