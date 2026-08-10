@@ -67,8 +67,11 @@ class ImportJobManager:
 
                 For RDM (routed to RDMManager.submit_rdm_import_job):
                     rdm_name (str): Name for the RDM
-                    edm_name (str): Name of the target EDM
                     rdm_file_path (str): Path to the .bak or .mdf file
+                    edm_name (str, optional): Name of the target EDM
+                    exposure_set_name (str, optional): Name of the target
+                        exposure set, for a standalone RDM with no EDM. Pass
+                        exactly one of edm_name or exposure_set_name.
 
                 For MRI (routed to MRIImportManager.submit_mri_import_job):
                     edm_name (str): Target EDM name

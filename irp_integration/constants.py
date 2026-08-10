@@ -32,6 +32,8 @@ WORKFLOW_IN_PROGRESS_STATUSES = ['QUEUED', 'PENDING', 'RUNNING', 'CANCEL_REQUEST
 SEARCH_DATABASE_SERVERS = '/platform/riskdata/v1/dataservers'
 SEARCH_EXPOSURE_SETS = '/platform/riskdata/v1/exposuresets'
 CREATE_EXPOSURE_SET = '/platform/riskdata/v1/exposuresets'
+# Resource URI for a single exposure set, as import jobs expect it in resourceUri.
+EXPOSURE_SET_URI = '/platform/riskdata/v1/exposuresets/{exposureSetId}'
 SEARCH_EDMS = '/platform/riskdata/v1/exposures'
 CREATE_EDM = '/platform/riskdata/v1/exposuresets/{exposureSetId}/exposures'
 UPGRADE_EDM_DATA_VERSION = '/platform/riskdata/v1/exposures/{exposureId}/data-upgrade'

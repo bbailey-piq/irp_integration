@@ -10,8 +10,8 @@ import time
 from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
 
 from .utils import extract_id_from_location_header, paginate_search
-from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORKFLOW_COMPLETED_STATUSES, DELETE_RDM, GET_DATABRIDGE_JOB, UPDATE_GROUP_ACCESS, SEARCH_IMPORTED_RDMS, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
-from .exceptions import IRPAPIError, IRPJobError
+from .constants import CREATE_EXPORT_JOB, GET_EXPORT_JOB, SEARCH_DATABASES, WORKFLOW_COMPLETED_STATUSES, DELETE_RDM, GET_DATABRIDGE_JOB, UPDATE_GROUP_ACCESS, SEARCH_IMPORTED_RDMS, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB, EXPOSURE_SET_URI
+from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
 from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int, validate_file_exists, validate_import_file_extension
 from .s3 import S3Manager
 
@@ -651,8 +651,13 @@ class RDMManager:
         """
         Search imported RDMs.
 
+        Each record reports ``rdmName`` and ``exposureName``. An RDM imported
+        standalone, against an exposure set rather than an EDM, has no
+        ``exposureName``.
+
         Args:
-            filter: Optional filter string (e.g., 'name="MyRDM"')
+            filter: Optional filter string on ``rdmName``
+                (e.g., 'rdmName="MyRDM"'). ``name`` is rejected with a 400.
             limit: Maximum results per page (default: 100)
             offset: Offset for pagination (default: 0)
 
@@ -675,17 +680,26 @@ class RDMManager:
     def submit_rdm_import_job(
         self,
         rdm_name: str,
-        edm_name: str,
-        rdm_file_path: str
+        rdm_file_path: str,
+        *,
+        edm_name: Optional[str] = None,
+        exposure_set_name: Optional[str] = None
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Submit RDM import job with S3 file upload.
 
         This method handles the complete RDM import workflow:
-        1. Search EDMs to get the resource URI
+        1. Resolve the resource URI the RDM is imported into
         2. Create import folder (get S3 credentials)
         3. Upload the RDM database file to S3
         4. Submit import job
+
+        Pass exactly one of ``edm_name`` or ``exposure_set_name``. With
+        ``edm_name``, the job's ``resourceUri`` is the EDM's ``uri`` and the RDM
+        is imported into that EDM. With ``exposure_set_name``, the job's
+        ``resourceUri`` is the exposure set's URI and the RDM is imported
+        standalone — no EDM is involved. The exposure set is created if no
+        exposure set of that name exists.
 
         The import folder's ``properties.fileExtension`` is read from
         ``rdm_file_path``, so a .bak and a .mdf file are both imported by
@@ -693,32 +707,54 @@ class RDMManager:
 
         Args:
             rdm_name: Name for the imported RDM
-            edm_name: Name of the EDM to import into
             rdm_file_path: Path to the .bak or .mdf file to import
+            edm_name: Name of the EDM to import into. Mutually exclusive with
+                ``exposure_set_name``.
+            exposure_set_name: Name of the exposure set to import into, for a
+                standalone RDM. Mutually exclusive with ``edm_name``.
 
         Returns:
             Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
         Raises:
-            IRPValidationError: If parameters are invalid
+            IRPValidationError: If parameters are invalid, or if ``edm_name``
+                and ``exposure_set_name`` are both given or both omitted
             IRPFileError: If file upload fails
             IRPAPIError: If API calls fail
         """
         validate_non_empty_string(rdm_name, "rdm_name")
-        validate_non_empty_string(edm_name, "edm_name")
         validate_file_exists(rdm_file_path, "rdm_file_path")
         file_extension = validate_import_file_extension(rdm_file_path, "rdm_file_path")
 
+        if edm_name and exposure_set_name:
+            raise IRPValidationError(
+                "Pass either edm_name or exposure_set_name, not both. "
+                "edm_name imports the RDM into that EDM; exposure_set_name "
+                "imports it standalone."
+            )
+
         s3_manager = S3Manager()
 
-        # Step 1: Search EDMs to get resource URI
-        edms = self.edm_manager.search_edms(filter=f'exposureName="{edm_name}"')
-        if not edms:
-            raise IRPAPIError(f"EDM '{edm_name}' not found")
-        try:
-            resource_uri = edms[0]['uri']
-        except (KeyError, TypeError, IndexError) as e:
-            raise IRPAPIError(f"Failed to extract resource URI from EDM: {e}") from e
+        # Step 1: Resolve the resource URI the RDM is imported into
+        if edm_name:
+            validate_non_empty_string(edm_name, "edm_name")
+            edms = self.edm_manager.search_edms(filter=f'exposureName="{edm_name}"')
+            if not edms:
+                raise IRPAPIError(f"EDM '{edm_name}' not found")
+            try:
+                resource_uri = edms[0]['uri']
+            except (KeyError, TypeError, IndexError) as e:
+                raise IRPAPIError(f"Failed to extract resource URI from EDM: {e}") from e
+        elif exposure_set_name:
+            validate_non_empty_string(exposure_set_name, "exposure_set_name")
+            exposure_set_id = self.edm_manager.get_or_create_exposure_set(exposure_set_name)
+            resource_uri = EXPOSURE_SET_URI.format(exposureSetId=exposure_set_id)
+        else:
+            raise IRPValidationError(
+                "One of edm_name or exposure_set_name is required. "
+                "edm_name imports the RDM into that EDM; exposure_set_name "
+                "imports it standalone."
+            )
 
         # Step 2: Create import folder
         folder_data = {
