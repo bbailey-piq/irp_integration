@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from typing import Dict, Any, List, Tuple, TYPE_CHECKING
-from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
+from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, EXPOSURE_SET_URI, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists, validate_import_file_extension
 from .utils import extract_id_from_location_header, paginate_search
@@ -177,6 +177,37 @@ class EDMManager:
             raise IRPAPIError(f"Failed to create exposure set '{name}': {e}")
 
 
+    def get_or_create_exposure_set(self, name: str) -> int:
+        """
+        Return the ID of the exposure set named ``name``, creating it if none exists.
+
+        Risk Modeler permits duplicate exposure set names. When the search
+        returns more than one exposure set named ``name``, the first is used.
+
+        Args:
+            name: Name of the exposure set
+
+        Returns:
+            The exposure set ID
+
+        Raises:
+            IRPValidationError: If name is empty
+            IRPAPIError: If the search or the creation fails
+        """
+        validate_non_empty_string(name, "name")
+
+        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{name}\"")
+        if exposure_sets:
+            try:
+                return int(exposure_sets[0]['exposureSetId'])
+            except (KeyError, TypeError, IndexError, ValueError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract exposure set ID for '{name}': {e}"
+                ) from e
+
+        return self.create_exposure_set(name=name)
+
+
     def search_edms(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Search EDMs (exposures).
@@ -250,16 +281,7 @@ class EDMManager:
             ) from e
 
         # Validate Exposure Set exists; create if it does not exist
-        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName={edm_name}")
-        if (len(exposure_sets) > 0):
-            try:
-                exposure_set_id = exposure_sets[0]['exposureSetId']
-            except (KeyError, TypeError, IndexError) as e:
-                raise IRPAPIError(
-                    f"Missing 'exposureSetId' index 0 does not exist in database server data: {e}"
-                ) from e
-        else:
-            exposure_set_id = self.create_exposure_set(name=edm_name)
+        exposure_set_id = self.get_or_create_exposure_set(edm_name)
 
         data = {
             "exposureName": edm_name,
@@ -577,16 +599,7 @@ class EDMManager:
             raise IRPAPIError(f"Failed to extract server ID: {e}") from e
 
         # Step 2: Create or get existing exposure set
-        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{edm_name}\"")
-        if len(exposure_sets) > 0:
-            try:
-                exposure_set_id = exposure_sets[0]['exposureSetId']
-            except (KeyError, TypeError, IndexError) as e:
-                raise IRPAPIError(
-                    f"Failed to extract exposure set ID: {e}"
-                ) from e
-        else:
-            exposure_set_id = self.create_exposure_set(name=edm_name)
+        exposure_set_id = self.get_or_create_exposure_set(edm_name)
 
         # Step 3: Validate the EDM name is unique before the upload
         self.validate_unique_edms([edm_name])
@@ -624,7 +637,7 @@ class EDMManager:
         }
         import_data = {
             "importType": folder_type,
-            "resourceUri": f'/platform/riskdata/v1/exposuresets/{exposure_set_id}',
+            "resourceUri": EXPOSURE_SET_URI.format(exposureSetId=exposure_set_id),
             "settings": settings
         }
         response = self.client.request('POST', SUBMIT_IMPORT_JOB, json=import_data)
