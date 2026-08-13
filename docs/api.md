@@ -1330,9 +1330,7 @@ Submit multiple geohaz jobs (geocoding and hazard operations).
  - **geohaz_data_list:**  List of geohaz data dicts, each containing:
    - edm_name: str
    - portfolio_name: str
-   - version: str
-   - hazard_eq: bool
-   - hazard_ws: bool
+   - layers: list of GeoHaz layer dictionaries
 
 **Returns:**
 > List of job IDs
@@ -1348,11 +1346,7 @@ def submit_geohaz_job(
     self,
     portfolio_name: str,
     edm_name: str,
-    version: str = '22.0',
-    hazard_eq: bool = False,
-    hazard_ws: bool = False,
-    geocode_layer_options: Optional[Dict[str, Any]] = None,
-    hazard_layer_options: Optional[Dict[str, Any]] = None
+    layers: List[Dict[str, Any]]
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
@@ -1370,13 +1364,12 @@ from an MRI import; see ``search_locations``.
 **Arguments:**
  - **portfolio_name:**  Name of the portfolio
  - **edm_name:**  Name of the EDM containing the portfolio
- - **version:**  Geocode version (default: "22.0")
- - **hazard_eq:**  Enable earthquake hazard (default: False)
- - **hazard_ws:**  Enable windstorm hazard (default: False)
- - **geocode_layer_options:**  Geocode layer option overrides; a default
-   set is used when None (default: None)
- - **hazard_layer_options:**  Hazard layer option overrides; a default set
-   is used when None (default: None)
+ - **layers:**  Non-empty list of geocode and/or hazard layer dictionaries.
+   Every layer specifies ``type``, ``name``, ``engineType``,
+   ``version``, and ``layerOptions``. Geocode options must include
+   ``geoLicenseType``, ``aggregateTriggerEnabled``, and
+   ``skipPrevGeocoded``. Hazard options must include
+   ``overrideUserDef`` and ``skipPrevHazard``.
 
 **Returns:**
 > Tuple of (job_id, request_body), where job_id is a GeoHaz job ID and
@@ -4241,6 +4234,25 @@ Validate that a value is a non-empty list.
 
 **Raises:**
  - **IRPValidationError:**  If value is not a non-empty list
+
+#### `validate_geohaz_layers`
+
+```python
+def validate_geohaz_layers(value: Any, param_name: str = 'layers') -> None
+```
+
+Validate GeoHaz geocode and hazard layer request dictionaries.
+
+Product names, engine types, versions, and additional fields pass through
+so callers can use API additions without waiting for a package release.
+
+**Arguments:**
+ - **value:**  GeoHaz layer dictionaries to validate
+ - **param_name:**  Parameter name for error messages (default: "layers")
+
+**Raises:**
+ - **IRPValidationError:**  If the list, a layer, or required layer options are
+   invalid
 
 #### `validate_list_of_positive_ints`
 

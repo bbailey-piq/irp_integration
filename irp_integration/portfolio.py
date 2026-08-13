@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from .constants import GET_PORTFOLIO_BY_ID, GET_PORTFOLIO_METADATA, CREATE_PORTFOLIO, GET_GEOHAZ_JOB, SEARCH_PORTFOLIOS, GEOHAZ_PORTFOLIO, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, SEARCH_ACCOUNTS_BY_PORTFOLIO, SEARCH_ACCOUNTS, SEARCH_POLICIES, SEARCH_LOCATIONS, ADD_FILTERED_ACCOUNTS, MANAGE_ACCOUNTS_BY_PORTFOLIO, PORTFOLIO_NAME_MAX_LENGTH, PORTFOLIO_NUMBER_MAX_LENGTH
 from .exceptions import IRPAPIError, IRPJobError, IRPValidationError
-from .validators import validate_list_not_empty, validate_list_of_positive_ints, validate_max_length, validate_non_empty_string, validate_non_negative_int, validate_positive_int
+from .validators import validate_geohaz_layers, validate_list_not_empty, validate_list_of_positive_ints, validate_max_length, validate_non_empty_string, validate_non_negative_int, validate_positive_int
 from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
@@ -984,9 +984,7 @@ class PortfolioManager:
             geohaz_data_list: List of geohaz data dicts, each containing:
                 - edm_name: str
                 - portfolio_name: str
-                - version: str
-                - hazard_eq: bool
-                - hazard_ws: bool
+                - layers: list of GeoHaz layer dictionaries
 
         Returns:
             List of job IDs
@@ -998,25 +996,24 @@ class PortfolioManager:
         validate_list_not_empty(geohaz_data_list, "geohaz_data_list")
 
         job_ids = []
-        for geohaz_data in geohaz_data_list:
-            try:
-                edm_name = geohaz_data['edm_name']
-                portfolio_name = geohaz_data['portfolio_name']
-                version = geohaz_data['version']
-                hazard_eq = geohaz_data['hazard_eq']
-                hazard_ws = geohaz_data['hazard_ws']
-            except (KeyError, TypeError) as e:
-                raise IRPAPIError(
-                    f"Missing geohaz job data: {e}"
-                ) from e
+        for index, geohaz_data in enumerate(geohaz_data_list):
+            entry_name = f"geohaz_data_list[{index}]"
+            if not isinstance(geohaz_data, dict):
+                raise IRPValidationError(
+                    f"{entry_name} must be a dictionary, got "
+                    f"{type(geohaz_data).__name__}"
+                )
+            for field in ("edm_name", "portfolio_name", "layers"):
+                if field not in geohaz_data:
+                    raise IRPValidationError(
+                        f"{entry_name} is missing required field '{field}'"
+                    )
 
             # Returns tuple of (job_id, request_body) - we only need job_id here
             job_id, _ = self.submit_geohaz_job(
-                portfolio_name=portfolio_name,
-                edm_name=edm_name,
-                version=version,
-                hazard_eq=hazard_eq,
-                hazard_ws=hazard_ws
+                portfolio_name=geohaz_data['portfolio_name'],
+                edm_name=geohaz_data['edm_name'],
+                layers=geohaz_data['layers']
             )
             job_ids.append(job_id)
 
@@ -1026,11 +1023,7 @@ class PortfolioManager:
     def submit_geohaz_job(self,
                           portfolio_name: str,
                           edm_name: str,
-                          version: str = "22.0",
-                          hazard_eq: bool = False,
-                          hazard_ws: bool = False,
-                          geocode_layer_options: Optional[Dict[str, Any]] = None,
-                          hazard_layer_options: Optional[Dict[str, Any]] = None
+                          layers: List[Dict[str, Any]]
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Execute geocoding and/or hazard operations on portfolio.
@@ -1047,13 +1040,12 @@ class PortfolioManager:
         Args:
             portfolio_name: Name of the portfolio
             edm_name: Name of the EDM containing the portfolio
-            version: Geocode version (default: "22.0")
-            hazard_eq: Enable earthquake hazard (default: False)
-            hazard_ws: Enable windstorm hazard (default: False)
-            geocode_layer_options: Geocode layer option overrides; a default
-                set is used when None (default: None)
-            hazard_layer_options: Hazard layer option overrides; a default set
-                is used when None (default: None)
+            layers: Non-empty list of geocode and/or hazard layer dictionaries.
+                Every layer specifies ``type``, ``name``, ``engineType``,
+                ``version``, and ``layerOptions``. Geocode options must include
+                ``geoLicenseType``, ``aggregateTriggerEnabled``, and
+                ``skipPrevGeocoded``. Hazard options must include
+                ``overrideUserDef`` and ``skipPrevHazard``.
 
         Returns:
             Tuple of (job_id, request_body), where job_id is a GeoHaz job ID and
@@ -1065,6 +1057,7 @@ class PortfolioManager:
         """
         validate_non_empty_string(portfolio_name, "portfolio_name")
         validate_non_empty_string(edm_name, "edm_name")
+        validate_geohaz_layers(layers)
 
         # Look up EDM to get exposure_id
         edms = self.edm_manager.search_edms(filter=f"exposureName=\"{edm_name}\"")
@@ -1103,56 +1096,13 @@ class PortfolioManager:
         if locations_count == 0:
             raise IRPAPIError(f"Portfolio '{portfolio_name}' has accounts but no locations to be GeoHaz'd")
 
-        if geocode_layer_options is None:
-            geocode_layer_options = {
-                "aggregateTriggerEnabled": "true",
-                "geoLicenseType": "0",
-                "skipPrevGeocoded": False
-            }
-
-        if hazard_layer_options is None:
-            hazard_layer_options = {
-                "overrideUserDef": False,
-                "skipPrevHazard": False
-            }
-
         data = {
             "resourceUri": portfolio_uri,
             "resourceType": "portfolio",
             "settings": {
-                "layers": [
-                    {
-                        "type": "geocode",
-                        "name": "geocode",
-                        "engineType": "RL",
-                        "version": version,
-                        "layerOptions": geocode_layer_options
-                    }
-                ]
+                "layers": layers
             }
         }
-
-        if hazard_eq:
-            data['settings']['layers'].append(
-                {
-                    "type": "hazard",
-                    "name": "earthquake",
-                    "engineType": "RL",
-                    "version": version,
-                    "layerOptions": hazard_layer_options
-                }
-            )
-
-        if hazard_ws:
-            data['settings']['layers'].append(
-                {
-                    "type": "hazard",
-                    "name": "windstorm",
-                    "engineType": "RL",
-                    "version": version,
-                    "layerOptions": hazard_layer_options
-                }
-            )
 
         try:
             logger.info("Submitting GeoHaz job for portfolio '%s'", portfolio_name)

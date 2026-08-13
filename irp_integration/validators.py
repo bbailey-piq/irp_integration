@@ -6,7 +6,7 @@ IRPValidationError exceptions when validation fails.
 """
 
 import os
-from typing import Any, List
+from typing import Any, Dict, List
 from .constants import IMPORT_FILE_EXTENSIONS
 from .exceptions import IRPValidationError
 
@@ -201,6 +201,76 @@ def validate_list_not_empty(value: Any, param_name: str) -> None:
         )
     if len(value) == 0:
         raise IRPValidationError(f"{param_name} cannot be empty")
+
+
+def validate_geohaz_layers(value: Any, param_name: str = "layers") -> None:
+    """
+    Validate GeoHaz geocode and hazard layer request dictionaries.
+
+    Product names, engine types, versions, and additional fields pass through
+    so callers can use API additions without waiting for a package release.
+
+    Args:
+        value: GeoHaz layer dictionaries to validate
+        param_name: Parameter name for error messages (default: "layers")
+
+    Raises:
+        IRPValidationError: If the list, a layer, or required layer options are
+            invalid
+    """
+    validate_list_not_empty(value, param_name)
+
+    required_string_fields = ("type", "name", "engineType", "version")
+    required_options: Dict[str, Dict[str, type]] = {
+        "geocode": {
+            "geoLicenseType": str,
+            "aggregateTriggerEnabled": bool,
+            "skipPrevGeocoded": bool,
+        },
+        "hazard": {
+            "overrideUserDef": bool,
+            "skipPrevHazard": bool,
+        },
+    }
+
+    for index, layer in enumerate(value):
+        layer_name = f"{param_name}[{index}]"
+        if not isinstance(layer, dict):
+            raise IRPValidationError(
+                f"{layer_name} must be a dictionary, got {type(layer).__name__}"
+            )
+
+        for field in required_string_fields:
+            if field not in layer:
+                raise IRPValidationError(f"{layer_name} is missing required field '{field}'")
+            validate_non_empty_string(layer[field], f"{layer_name}.{field}")
+
+        layer_type = layer["type"]
+        if layer_type not in required_options:
+            raise IRPValidationError(
+                f"{layer_name}.type must be 'geocode' or 'hazard', got {layer_type!r}"
+            )
+
+        if "layerOptions" not in layer:
+            raise IRPValidationError(
+                f"{layer_name} is missing required field 'layerOptions'"
+            )
+        layer_options = layer["layerOptions"]
+        if not isinstance(layer_options, dict):
+            raise IRPValidationError(
+                f"{layer_name}.layerOptions must be a dictionary, "
+                f"got {type(layer_options).__name__}"
+            )
+
+        for option, expected_type in required_options[layer_type].items():
+            option_name = f"{layer_name}.layerOptions.{option}"
+            if option not in layer_options:
+                raise IRPValidationError(f"{option_name} is required")
+            if not isinstance(layer_options[option], expected_type):
+                raise IRPValidationError(
+                    f"{option_name} must be a {expected_type.__name__}, "
+                    f"got {type(layer_options[option]).__name__}"
+                )
     
 
 def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
