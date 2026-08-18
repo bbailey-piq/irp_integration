@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from typing import Dict, List, Any, Optional, Set, Tuple, TYPE_CHECKING
+from .analysis_validation import classify_model_profile, validate_analysis_settings
 from .constants import (
     CREATE_ANALYSIS_JOB, DELETE_ANALYSIS, GET_ANALYSIS_GROUPING_JOB,
     GET_ANALYSIS_JOB, GET_ANALYSIS_RESULT, CREATE_ANALYSIS_GROUP,
@@ -258,10 +259,8 @@ class AnalysisManager:
             # Extract perilCode and modelRegionCode for event rate scheme lookup
             model_peril_code = model_profile.get('perilCode')
             model_region_code = model_profile.get('modelRegionCode')
-            if "HD" in model_profile['softwareVersionCode']:
-                job_type = "HD"
-            else:
-                job_type = "DLM"
+            software_version_code = model_profile['softwareVersionCode']
+            job_type = classify_model_profile(software_version_code)
         except (KeyError, IndexError, TypeError) as e:
             raise IRPReferenceDataError(
                 f"Failed to extract model profile ID for '{analysis_profile_name}': {e}"
@@ -273,6 +272,15 @@ class AnalysisManager:
             raise IRPReferenceDataError(
                 f"Failed to extract output profile ID for '{output_profile_name}': {e}"
             ) from e
+
+        validation_errors = validate_analysis_settings(
+            software_version_code=software_version_code,
+            scheme_provided=bool(event_rate_scheme_name),
+            profile_peril_code=model_peril_code,
+            profile_model_region_code=model_region_code,
+        )
+        if validation_errors:
+            raise IRPReferenceDataError(validation_errors[0])
 
         # Event rate scheme is required for DLM analyses but optional for HD
         # Use perilCode and modelRegionCode from model profile to filter the correct event rate scheme
@@ -292,8 +300,6 @@ class AnalysisManager:
                 raise IRPReferenceDataError(
                     f"Failed to extract event rate scheme ID for '{event_rate_scheme_name}': {e}"
                 ) from e
-        elif job_type == "DLM":
-            raise IRPReferenceDataError("Event rate scheme is required for DLM analyses")
 
         # Look up tag IDs
         try:

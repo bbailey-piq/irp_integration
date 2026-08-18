@@ -35,6 +35,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [TreatyManager](#class-treatymanager)
 - [`irp_integration.analysis`](#irp_integrationanalysis)
   - [AnalysisManager](#class-analysismanager)
+- [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
 - [`irp_integration.rdm`](#irp_integrationrdm)
   - [RDMManager](#class-rdmmanager)
 - [`irp_integration.risk_data_job`](#irp_integrationrisk_data_job)
@@ -2371,6 +2372,59 @@ Submit an analysis results export job.
 **Raises:**
  - **IRPValidationError:**  If inputs are invalid
  - **IRPAPIError:**  If the analysis doesn't exist or request fails
+
+---
+
+## `irp_integration.analysis_validation`
+
+Analysis classification and validation helpers.
+
+The functions in this module operate only on values already retrieved from Risk Modeler. They do not make API requests or require an ``IRPClient``.
+
+### Functions
+
+#### `classify_model_profile`
+
+```python
+def classify_model_profile(software_version_code: str) -> Literal['DLM', 'HD']
+```
+
+Classify a model profile as DLM or HD.
+
+**Arguments:**
+ - **software_version_code:**  Model profile software version code.
+
+**Returns:**
+> ``"HD"`` when ``software_version_code`` contains ``"HD"``;
+> otherwise, ``"DLM"``.
+
+#### `validate_analysis_settings`
+
+```python
+def validate_analysis_settings(
+    software_version_code: str,
+    scheme_provided: bool,
+    profile_peril_code: str,
+    profile_model_region_code: str,
+    scheme_peril_code: Optional[str] = None,
+    scheme_model_region_code: Optional[str] = None
+) -> list[str]
+```
+
+Validate event-rate-scheme settings for a model profile.
+
+Pair validation is skipped when either event-rate-scheme code is unknown.
+
+**Arguments:**
+ - **software_version_code:**  Model profile software version code.
+ - **scheme_provided:**  Whether an event-rate-scheme name was supplied.
+ - **profile_peril_code:**  Model profile ``perilCode``.
+ - **profile_model_region_code:**  Model profile ``modelRegionCode``.
+ - **scheme_peril_code:**  Event rate scheme ``perilCode``, if known.
+ - **scheme_model_region_code:**  Event rate scheme ``modelRegionCode``, if known.
+
+**Returns:**
+> Validation error messages. An empty list means the settings are valid.
 
 ---
 
