@@ -3446,35 +3446,88 @@ These values can be obtained from the corresponding model profile.
 #### `search_currencies`
 
 ```python
-def search_currencies(self, where_clause: str = '') -> Dict[str, Any]
+def search_currencies(
+    self,
+    where_clause: str = '',
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    sort: str = '',
+    sort_order: Optional[int] = None
+) -> Dict[str, Any]
 ```
 
-Search currencies with optional filtering.
+Search currencies with optional filtering, sorting, and pagination.
 
 **Arguments:**
  - **where_clause:**  Optional filter clause
+ - **limit:**  Maximum number of records to return
+ - **offset:**  Number of records to skip
+ - **sort:**  Optional field to sort by
+ - **sort_order:**  Sort direction — 1 for ascending, -1 for descending
 
 **Returns:**
 > Dict containing currencies (with an 'items' list)
 
 **Raises:**
+ - **IRPValidationError:**  If limit, offset, or sort_order is invalid
+ - **IRPAPIError:**  If request fails
+
+#### `search_currency_schemes`
+
+```python
+def search_currency_schemes(
+    self,
+    where_clause: str = '',
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    sort: str = '',
+    sort_order: Optional[int] = None
+) -> Dict[str, Any]
+```
+
+Search currency schemes with optional filtering, sorting, and pagination.
+
+**Arguments:**
+ - **where_clause:**  Optional filter clause
+ - **limit:**  Maximum number of records to return
+ - **offset:**  Number of records to skip
+ - **sort:**  Optional field to sort by
+ - **sort_order:**  Sort direction — 1 for ascending, -1 for descending
+
+**Returns:**
+> Dict containing currency schemes (with an 'items' list)
+
+**Raises:**
+ - **IRPValidationError:**  If limit, offset, or sort_order is invalid
  - **IRPAPIError:**  If request fails
 
 #### `search_currency_scheme_vintages`
 
 ```python
-def search_currency_scheme_vintages(self, where_clause: str = '') -> Dict[str, Any]
+def search_currency_scheme_vintages(
+    self,
+    where_clause: str = '',
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    sort: str = '',
+    sort_order: Optional[int] = None
+) -> Dict[str, Any]
 ```
 
-Search currency scheme vintages with optional filtering.
+Search currency scheme vintages with optional filtering, sorting, and pagination.
 
 **Arguments:**
  - **where_clause:**  Optional filter clause
+ - **limit:**  Maximum number of records to return
+ - **offset:**  Number of records to skip
+ - **sort:**  Optional field to sort by
+ - **sort_order:**  Sort direction — 1 for ascending, -1 for descending
 
 **Returns:**
 > Dict containing currency scheme vintages
 
 **Raises:**
+ - **IRPValidationError:**  If limit, offset, or sort_order is invalid
  - **IRPAPIError:**  If request fails
 
 #### `get_latest_currency_scheme_vintage`
@@ -4218,6 +4271,23 @@ Validate that a value is a non-negative integer.
 
 **Raises:**
  - **IRPValidationError:**  If value is not a non-negative integer
+
+#### `validate_sort_order`
+
+```python
+def validate_sort_order(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a valid sort order: 1 (ascending) or -1 (descending).
+
+``bool`` is rejected; see ``_is_int``.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not 1 or -1
 
 #### `validate_max_length`
 

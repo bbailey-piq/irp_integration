@@ -108,6 +108,25 @@ def validate_non_negative_int(value: Any, param_name: str) -> None:
         )
 
 
+def validate_sort_order(value: Any, param_name: str) -> None:
+    """
+    Validate that a value is a valid sort order: 1 (ascending) or -1 (descending).
+
+    ``bool`` is rejected; see ``_is_int``.
+
+    Args:
+        value: Value to validate
+        param_name: Parameter name for error message
+
+    Raises:
+        IRPValidationError: If value is not 1 or -1
+    """
+    if not _is_int(value) or value not in (1, -1):
+        raise IRPValidationError(
+            f"{param_name} must be 1 (ascending) or -1 (descending), got {value!r}"
+        )
+
+
 def validate_max_length(value: Any, param_name: str, max_length: int) -> None:
     """
     Validate that a string is no longer than a server-side limit.

@@ -8,12 +8,15 @@ model profiles, output profiles, event rate schemes, currencies, and tags.
 import logging
 from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from .constants import (
-    SEARCH_CURRENCIES, SEARCH_CURRENCY_SCHEME_VINTAGES, GET_TAGS, CREATE_TAG,
+    SEARCH_CURRENCIES, SEARCH_CURRENCY_SCHEMES, SEARCH_CURRENCY_SCHEME_VINTAGES, GET_TAGS, CREATE_TAG,
     GET_MODEL_PROFILES, GET_OUTPUT_PROFILES, GET_EVENT_RATE_SCHEME,
     SEARCH_SIMULATION_SETS, SEARCH_PET_METADATA, SEARCH_SOFTWARE_MODEL_VERSION_MAP
 )
 from .exceptions import IRPAPIError
-from .validators import validate_non_empty_string, validate_list_not_empty, validate_positive_int
+from .validators import (
+    validate_non_empty_string, validate_list_not_empty, validate_positive_int,
+    validate_non_negative_int, validate_sort_order
+)
 from .utils import extract_id_from_location_header
 
 if TYPE_CHECKING:
@@ -223,22 +226,49 @@ class ReferenceDataManager:
             raise IRPAPIError(f"Failed to get event rate scheme '{scheme_name}': {e}")
 
 
-    def search_currencies(self, where_clause: str = "") -> Dict[str, Any]:
+    def search_currencies(
+        self,
+        where_clause: str = "",
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        sort: str = "",
+        sort_order: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Search currencies with optional filtering.
+        Search currencies with optional filtering, sorting, and pagination.
 
         Args:
             where_clause: Optional filter clause
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            sort: Optional field to sort by
+            sort_order: Sort direction — 1 for ascending, -1 for descending
 
         Returns:
             Dict containing currencies (with an 'items' list)
 
         Raises:
+            IRPValidationError: If limit, offset, or sort_order is invalid
             IRPAPIError: If request fails
         """
-        params = {}
+        if limit is not None:
+            validate_positive_int(limit, "limit")
+        if offset is not None:
+            validate_non_negative_int(offset, "offset")
+        if sort_order is not None:
+            validate_sort_order(sort_order, "sort_order")
+
+        params: Dict[str, Any] = {}
         if where_clause:
             params['where'] = where_clause
+        if limit is not None:
+            params['limit'] = limit
+        if offset is not None:
+            params['offset'] = offset
+        if sort:
+            params['sort'] = sort
+        if sort_order is not None:
+            params['sortOrder'] = sort_order
 
         try:
             response = self.client.request('GET', SEARCH_CURRENCIES, params=params)
@@ -247,22 +277,100 @@ class ReferenceDataManager:
             raise IRPAPIError(f"Failed to search currencies: {e}")
 
 
-    def search_currency_scheme_vintages(self, where_clause: str = "") -> Dict[str, Any]:
+    def search_currency_schemes(
+        self,
+        where_clause: str = "",
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        sort: str = "",
+        sort_order: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Search currency scheme vintages with optional filtering.
+        Search currency schemes with optional filtering, sorting, and pagination.
 
         Args:
             where_clause: Optional filter clause
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            sort: Optional field to sort by
+            sort_order: Sort direction — 1 for ascending, -1 for descending
+
+        Returns:
+            Dict containing currency schemes (with an 'items' list)
+
+        Raises:
+            IRPValidationError: If limit, offset, or sort_order is invalid
+            IRPAPIError: If request fails
+        """
+        if limit is not None:
+            validate_positive_int(limit, "limit")
+        if offset is not None:
+            validate_non_negative_int(offset, "offset")
+        if sort_order is not None:
+            validate_sort_order(sort_order, "sort_order")
+
+        params: Dict[str, Any] = {}
+        if where_clause:
+            params['where'] = where_clause
+        if limit is not None:
+            params['limit'] = limit
+        if offset is not None:
+            params['offset'] = offset
+        if sort:
+            params['sort'] = sort
+        if sort_order is not None:
+            params['sortOrder'] = sort_order
+
+        try:
+            response = self.client.request('GET', SEARCH_CURRENCY_SCHEMES, params=params)
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to search currency schemes: {e}")
+
+
+    def search_currency_scheme_vintages(
+        self,
+        where_clause: str = "",
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        sort: str = "",
+        sort_order: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Search currency scheme vintages with optional filtering, sorting, and pagination.
+
+        Args:
+            where_clause: Optional filter clause
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            sort: Optional field to sort by
+            sort_order: Sort direction — 1 for ascending, -1 for descending
 
         Returns:
             Dict containing currency scheme vintages
 
         Raises:
+            IRPValidationError: If limit, offset, or sort_order is invalid
             IRPAPIError: If request fails
         """
-        params = {}
+        if limit is not None:
+            validate_positive_int(limit, "limit")
+        if offset is not None:
+            validate_non_negative_int(offset, "offset")
+        if sort_order is not None:
+            validate_sort_order(sort_order, "sort_order")
+
+        params: Dict[str, Any] = {}
         if where_clause:
             params['where'] = where_clause
+        if limit is not None:
+            params['limit'] = limit
+        if offset is not None:
+            params['offset'] = offset
+        if sort:
+            params['sort'] = sort
+        if sort_order is not None:
+            params['sortOrder'] = sort_order
 
         try:
             response = self.client.request('GET', SEARCH_CURRENCY_SCHEME_VINTAGES, params=params)
