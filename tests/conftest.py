@@ -12,8 +12,10 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from irp_integration.analysis import AnalysisManager
 from irp_integration.portfolio import PortfolioManager
 from irp_integration.reference_data import ReferenceDataManager
+from irp_integration.treaty import TreatyManager
 
 
 class FakeResponse:
@@ -61,7 +63,7 @@ class FakeClient:
 
 
 class FakeEDMManager:
-    """Stand-in for ``EDMManager`` covering only the create_portfolio lookup."""
+    """Stand-in for ``EDMManager`` covering only the EDM-name-to-exposureId lookup."""
 
     def __init__(self, edms: Optional[List[Dict[str, Any]]] = None) -> None:
         self.edms = [] if edms is None else edms
@@ -92,6 +94,28 @@ def make_reference_data_manager():
         client = FakeClient(responses)
         irp = SimpleNamespace(client=client)
         return ReferenceDataManager(irp), client
+
+    return build
+
+
+@pytest.fixture
+def make_analysis_manager():
+    """
+    Return a factory building (AnalysisManager, FakeClient, FakeEDMManager).
+
+    ``AnalysisManager`` reads its sibling managers off the owning client, so the
+    real ``ReferenceDataManager``, ``TreatyManager`` and ``PortfolioManager`` are
+    built over the same ``FakeClient``. One queue of responses then covers every
+    request the submit path makes, in call order.
+    """
+    def build(responses=None, edms=None):
+        client = FakeClient(responses)
+        edm_manager = FakeEDMManager(edms)
+        irp = SimpleNamespace(client=client, edm=edm_manager)
+        irp.reference_data = ReferenceDataManager(irp)
+        irp.treaty = TreatyManager(irp)
+        irp.portfolio = PortfolioManager(irp)
+        return AnalysisManager(irp), client, edm_manager
 
     return build
 
