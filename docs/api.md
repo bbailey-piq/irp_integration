@@ -1743,8 +1743,8 @@ Submit multiple portfolio analysis jobs.
    - analysis_profile_name: str
    - output_profile_name: str
    - event_rate_scheme_name: str
-   - treaty_names: List[str]
-   - tag_names: List[str]
+   - treaty_names: List[str], optional (defaults to [])
+   - tag_names: List[str], optional (defaults to [])
 
 **Returns:**
 > List of job IDs
@@ -1784,8 +1784,10 @@ Submit portfolio analysis job (submits but doesn't wait).
  - **analysis_profile_name:**  Model profile name
  - **output_profile_name:**  Output profile name
  - **event_rate_scheme_name:**  Event rate scheme name (required for DLM, optional for HD)
- - **treaty_names:**  List of treaty names to apply
- - **tag_names:**  List of tag names to apply
+ - **treaty_names:**  List of treaty names to apply. An empty list submits the
+   analysis with no treaties applied (treatyIds is sent as [])
+ - **tag_names:**  List of tag names to apply. An empty list submits the analysis
+   with no tags applied (tagIds is sent as [])
  - **currency:**  Optional currency configuration
  - **skip_duplicate_check:**  Skip checking if analysis name already exists (for batch operations)
  - **franchise_deductible:**  Whether to apply franchise deductible (default: False)
