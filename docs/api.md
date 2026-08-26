@@ -2219,7 +2219,9 @@ Retrieve Event Loss Table (ELT) for an analysis.
 
 **Arguments:**
  - **analysis_id:**  Analysis ID
- - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **perspective_code:**  Risk Modeler financial perspective code
+   (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+   in constants.py for the full set.
  - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
  - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
  - **limit:**  Optional maximum number of records to return
@@ -2247,7 +2249,9 @@ Retrieve EP (Exceedance Probability) metrics for an analysis.
 
 **Arguments:**
  - **analysis_id:**  Analysis ID
- - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **perspective_code:**  Risk Modeler financial perspective code
+   (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+   in constants.py for the full set.
  - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
 
 **Returns:**
@@ -2272,7 +2276,9 @@ Retrieve statistics for an analysis.
 
 **Arguments:**
  - **analysis_id:**  Analysis ID
- - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **perspective_code:**  Risk Modeler financial perspective code
+   (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+   in constants.py for the full set.
  - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
 
 **Returns:**
@@ -2302,7 +2308,9 @@ Note: PLT is only available for HD (High Definition) analyses.
 
 **Arguments:**
  - **analysis_id:**  Analysis ID
- - **perspective_code:**  One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+ - **perspective_code:**  Risk Modeler financial perspective code
+   (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+   in constants.py for the full set.
  - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
  - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
  - **limit:**  Optional maximum number of records to return (default: 100000)
@@ -4617,6 +4625,7 @@ API endpoint constants and status/code maps for the Risk Modeler API.
 
 - Endpoint path templates, grouped by area. Most contain ``str.format`` placeholders (e.g. ``{exposureId}``, ``{jobId}``) that callers fill in with resource IDs before issuing the request.
 - Workflow status groupings: ``WORKFLOW_COMPLETED_STATUSES`` (terminal) and ``WORKFLOW_IN_PROGRESS_STATUSES`` (non-terminal). See ``client.py`` for how these drive polling and the terminal-status contract.
-- Code maps that translate human-readable names to the short API codes: ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, ``TREATY_ATTACHMENT_LEVELS``, and ``PERSPECTIVE_CODES``.
+- Code maps that translate human-readable names to the short API codes: ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, and ``TREATY_ATTACHMENT_LEVELS``.
+- ``PERSPECTIVE_CODES``: the financial perspective codes the analysis result endpoints accept as ``perspectiveCode``. See ``analysis.py`` for how ``get_elt()``, ``get_ep()``, ``get_stats()``, and ``get_plt()`` validate against it.
 
 ---

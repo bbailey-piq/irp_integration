@@ -1306,8 +1306,9 @@ class AnalysisManager:
         """Validate perspective code is one of the allowed values."""
         if perspective_code not in PERSPECTIVE_CODES:
             raise IRPValidationError(
-                f"Invalid perspective_code '{perspective_code}'. "
-                f"Must be one of: {', '.join(PERSPECTIVE_CODES)}"
+                f"Invalid perspective_code '{perspective_code}'. Not in the "
+                "list of valid perspective codes; see PERSPECTIVE_CODES in "
+                "irp_integration/constants.py"
             )
 
     def get_elt(
@@ -1324,7 +1325,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return
@@ -1374,7 +1377,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1414,7 +1419,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1459,7 +1466,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return (default: 100000)
