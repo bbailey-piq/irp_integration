@@ -101,8 +101,8 @@ class AnalysisManager:
                 - analysis_profile_name: str
                 - output_profile_name: str
                 - event_rate_scheme_name: str
-                - treaty_names: List[str]
-                - tag_names: List[str]
+                - treaty_names: List[str], optional (defaults to [])
+                - tag_names: List[str], optional (defaults to [])
 
         Returns:
             List of job IDs
@@ -131,8 +131,8 @@ class AnalysisManager:
                     analysis_profile_name=analysis_data['analysis_profile_name'],
                     output_profile_name=analysis_data['output_profile_name'],
                     event_rate_scheme_name=analysis_data['event_rate_scheme_name'],
-                    treaty_names=analysis_data['treaty_names'],
-                    tag_names=analysis_data['tag_names'],
+                    treaty_names=analysis_data.get('treaty_names', []),
+                    tag_names=analysis_data.get('tag_names', []),
                     skip_duplicate_check=True  # Already validated above
                 )
                 job_ids.append(job_id)
@@ -168,8 +168,10 @@ class AnalysisManager:
             analysis_profile_name: Model profile name
             output_profile_name: Output profile name
             event_rate_scheme_name: Event rate scheme name (required for DLM, optional for HD)
-            treaty_names: List of treaty names to apply
-            tag_names: List of tag names to apply
+            treaty_names: List of treaty names to apply. An empty list submits the
+                analysis with no treaties applied (treatyIds is sent as [])
+            tag_names: List of tag names to apply. An empty list submits the analysis
+                with no tags applied (tagIds is sent as [])
             currency: Optional currency configuration
             skip_duplicate_check: Skip checking if analysis name already exists (for batch operations)
             franchise_deductible: Whether to apply franchise deductible (default: False)
@@ -316,10 +318,13 @@ class AnalysisManager:
             raise IRPReferenceDataError(validation_error)
 
         # Look up tag IDs
-        try:
-            tag_ids = self.reference_data_manager.get_tag_ids_from_tag_names(tag_names)
-        except IRPAPIError as e:
-            raise IRPAPIError(f"Failed to get tag ids for tag names {tag_names}: {e}")
+        if tag_names:
+            try:
+                tag_ids = self.reference_data_manager.get_tag_ids_from_tag_names(tag_names)
+            except IRPAPIError as e:
+                raise IRPAPIError(f"Failed to get tag ids for tag names {tag_names}: {e}")
+        else:
+            tag_ids = []
 
         if currency is None:
             currency = self.reference_data_manager.get_analysis_currency()
