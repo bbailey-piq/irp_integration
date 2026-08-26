@@ -67,8 +67,8 @@ def test_unknown_codes_fail_before_the_request(getter_name, perspective_code):
         getattr(manager, getter_name)(ANALYSIS_ID, perspective_code, EXPOSURE_RESOURCE_ID)
 
     assert f"Invalid perspective_code '{perspective_code}'" in str(raised.value)
-    assert "Must be one of: " in str(raised.value), (
-        "the message has to name the allowed set, not just report a rejection"
+    assert "see PERSPECTIVE_CODES in irp_integration/constants.py" in str(raised.value), (
+        "the message has to point at the valid codes, not just report a rejection"
     )
     assert client.calls == [], "validation runs before the request, so nothing is sent"
 

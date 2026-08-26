@@ -9,8 +9,12 @@ Defines:
       ``WORKFLOW_IN_PROGRESS_STATUSES`` (non-terminal). See ``client.py`` for how
       these drive polling and the terminal-status contract.
     - Code maps that translate human-readable names to the short API codes:
-      ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, ``TREATY_ATTACHMENT_LEVELS``,
-      and ``PERSPECTIVE_CODES``.
+      ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, and
+      ``TREATY_ATTACHMENT_LEVELS``.
+    - ``PERSPECTIVE_CODES``: the financial perspective codes the analysis result
+      endpoints accept as ``perspectiveCode``. See ``analysis.py`` for how
+      ``get_elt()``, ``get_ep()``, ``get_stats()``, and ``get_plt()`` validate
+      against it.
 """
 
 # Auth endpoints

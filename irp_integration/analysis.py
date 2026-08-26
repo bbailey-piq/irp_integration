@@ -1306,8 +1306,9 @@ class AnalysisManager:
         """Validate perspective code is one of the allowed values."""
         if perspective_code not in PERSPECTIVE_CODES:
             raise IRPValidationError(
-                f"Invalid perspective_code '{perspective_code}'. "
-                f"Must be one of: {', '.join(PERSPECTIVE_CODES)}"
+                f"Invalid perspective_code '{perspective_code}'. Not in the "
+                "list of valid perspective codes; see PERSPECTIVE_CODES in "
+                "irp_integration/constants.py"
             )
 
     def get_elt(
