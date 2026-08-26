@@ -8,7 +8,10 @@ import json
 import logging
 import time
 from typing import Dict, List, Any, Optional, Set, Tuple, TYPE_CHECKING
-from .analysis_validation import classify_model_profile, validate_analysis_settings
+from .analysis_validation import (
+    analysis_type_for_software_version,
+    validate_event_rate_scheme_settings,
+)
 from .constants import (
     CREATE_ANALYSIS_JOB, DELETE_ANALYSIS, GET_ANALYSIS_GROUPING_JOB,
     GET_ANALYSIS_JOB, GET_ANALYSIS_RESULT, CREATE_ANALYSIS_GROUP,
@@ -182,6 +185,10 @@ class AnalysisManager:
         Raises:
             IRPValidationError: If inputs are invalid
             IRPAPIError: If request fails or EDM/portfolio not found
+            IRPReferenceDataError: If a profile, tag, or event rate scheme cannot
+                be resolved; if the model profile is DLM and no event rate scheme
+                name was given; or if the event rate scheme's perilCode and
+                modelRegionCode do not match the model profile's
         """
         validate_non_empty_string(edm_name, "edm_name")
         validate_non_empty_string(portfolio_name, "portfolio_name")
@@ -262,7 +269,7 @@ class AnalysisManager:
             model_peril_code = model_profile.get('perilCode')
             model_region_code = model_profile.get('modelRegionCode')
             software_version_code = model_profile['softwareVersionCode']
-            job_type = classify_model_profile(software_version_code)
+            job_type = analysis_type_for_software_version(software_version_code)
         except (KeyError, IndexError, TypeError) as e:
             raise IRPReferenceDataError(
                 f"Failed to extract model profile ID for '{analysis_profile_name}': {e}"
@@ -275,18 +282,10 @@ class AnalysisManager:
                 f"Failed to extract output profile ID for '{output_profile_name}': {e}"
             ) from e
 
-        validation_errors = validate_analysis_settings(
-            software_version_code=software_version_code,
-            scheme_provided=bool(event_rate_scheme_name),
-            profile_peril_code=model_peril_code,
-            profile_model_region_code=model_region_code,
-        )
-        if validation_errors:
-            raise IRPReferenceDataError(validation_errors[0])
-
-        # Event rate scheme is required for DLM analyses but optional for HD
         # Use perilCode and modelRegionCode from model profile to filter the correct event rate scheme
         event_rate_scheme_id = None
+        scheme_peril_code = None
+        scheme_model_region_code = None
         if event_rate_scheme_name:
             event_rate_scheme_response = self.reference_data_manager.get_event_rate_scheme_by_name(
                 event_rate_scheme_name,
@@ -297,11 +296,26 @@ class AnalysisManager:
                 filter_info = f" (perilCode={model_peril_code}, modelRegionCode={model_region_code})" if model_peril_code or model_region_code else ""
                 raise IRPReferenceDataError(f"Event rate scheme '{event_rate_scheme_name}'{filter_info} not found")
             try:
-                event_rate_scheme_id = event_rate_scheme_response['items'][0]['eventRateSchemeId']
+                event_rate_scheme = event_rate_scheme_response['items'][0]
+                event_rate_scheme_id = event_rate_scheme['eventRateSchemeId']
+                scheme_peril_code = event_rate_scheme.get('perilCode')
+                scheme_model_region_code = event_rate_scheme.get('modelRegionCode')
             except (KeyError, IndexError, TypeError) as e:
                 raise IRPReferenceDataError(
                     f"Failed to extract event rate scheme ID for '{event_rate_scheme_name}': {e}"
                 ) from e
+
+        # Event rate scheme is required for DLM analyses but optional for HD
+        validation_error = validate_event_rate_scheme_settings(
+            software_version_code,
+            scheme_provided=bool(event_rate_scheme_name),
+            profile_peril_code=model_peril_code,
+            profile_model_region_code=model_region_code,
+            scheme_peril_code=scheme_peril_code,
+            scheme_model_region_code=scheme_model_region_code,
+        )
+        if validation_error:
+            raise IRPReferenceDataError(validation_error)
 
         # Look up tag IDs
         if tag_names:
@@ -1297,8 +1311,9 @@ class AnalysisManager:
         """Validate perspective code is one of the allowed values."""
         if perspective_code not in PERSPECTIVE_CODES:
             raise IRPValidationError(
-                f"Invalid perspective_code '{perspective_code}'. "
-                f"Must be one of: {', '.join(PERSPECTIVE_CODES)}"
+                f"Invalid perspective_code '{perspective_code}'. Not in the "
+                "list of valid perspective codes; see PERSPECTIVE_CODES in "
+                "irp_integration/constants.py"
             )
 
     def get_elt(
@@ -1315,7 +1330,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return
@@ -1365,7 +1382,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1405,7 +1424,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1450,7 +1471,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return (default: 100000)
