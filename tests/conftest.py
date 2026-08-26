@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from irp_integration.portfolio import PortfolioManager
+from irp_integration.reference_data import ReferenceDataManager
 
 
 class FakeResponse:
@@ -80,6 +81,17 @@ def make_portfolio_manager():
         edm_manager = FakeEDMManager(edms)
         irp = SimpleNamespace(client=client, edm=edm_manager)
         return PortfolioManager(irp), client, edm_manager
+
+    return build
+
+
+@pytest.fixture
+def make_reference_data_manager():
+    """Return a factory building (ReferenceDataManager, FakeClient)."""
+    def build(responses=None):
+        client = FakeClient(responses)
+        irp = SimpleNamespace(client=client)
+        return ReferenceDataManager(irp), client
 
     return build
 

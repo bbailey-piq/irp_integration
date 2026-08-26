@@ -136,6 +136,7 @@ UPDATE_GROUP_ACCESS = '/databridge/v1/sql-instances/{instanceName}/Databases/{da
 
 # Currency endpoints
 SEARCH_CURRENCIES = '/data-store/referencetables/currency'
+SEARCH_CURRENCY_SCHEMES = '/data-store/referencetables/currencyscheme'
 SEARCH_CURRENCY_SCHEME_VINTAGES = '/data-store/referencetables/currencyschemevintage'
 
 # Simulation/Model reference data endpoints
