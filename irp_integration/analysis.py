@@ -1324,7 +1324,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return
@@ -1374,7 +1376,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1414,7 +1418,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
 
         Returns:
@@ -1459,7 +1465,9 @@ class AnalysisManager:
 
         Args:
             analysis_id: Analysis ID
-            perspective_code: One of 'GR' (Gross), 'GU' (Ground-Up), 'RL' (Reinsurance Layer)
+            perspective_code: Risk Modeler financial perspective code
+                (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
+                in constants.py for the full set.
             exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return (default: 100000)

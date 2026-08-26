@@ -118,7 +118,16 @@ GET_ANALYSIS_PLT = '/platform/riskdata/v1/analyses/{analysisId}/plt'
 GET_ANALYSIS_REGIONS = '/platform/riskdata/v1/analyses/{analysisId}/regions'
 
 # Perspective codes for analysis results
-PERSPECTIVE_CODES = ['GR', 'GU', 'RL']  # Gross, Ground-Up, Reinsurance Layer
+PERSPECTIVE_CODES = [
+    'C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'CG',
+    'CL', 'DC', 'EL', 'FA', 'G1', 'G2', 'GR', 'GS',
+    'GU', 'I0', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6',
+    'IG', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'LG',
+    'M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'MG',
+    'NL', 'NP', 'OI', 'OL', 'PY', 'QS', 'RC', 'RG',
+    'RL', 'RN', 'RP', 'SS', 'TE', 'TG', 'TN', 'TV',
+    'TY', 'UC', 'VA', 'VL', 'VP', 'VT', 'VY', 'WX',
+]
 
 GET_MODEL_PROFILES = '/analysis-settings/modelprofiles'
 GET_OUTPUT_PROFILES = '/analysis-settings/outputprofiles'
