@@ -98,6 +98,10 @@ client re-logs in with the stored credentials and retries the request once. If
 the retry still fails, the error propagates. There is no proactive expiry
 tracking.
 
+`client.export_job.download_export_results()` sends the configured
+`Authorization` header when it requests the export job's `downloadUrl`. The
+download also uses the client's retry policy.
+
 ### Data Bridge Configuration
 
 The Data Bridge module (`client.databridge`) connects directly to Moody's SQL Server databases via ODBC. It requires separate setup from the REST API.

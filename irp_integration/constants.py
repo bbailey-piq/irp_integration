@@ -29,7 +29,8 @@ GET_RISK_DATA_JOB_BY_ID = '/platform/riskdata/v1/jobs/{job_id}'
 SEARCH_RISK_DATA_JOBS = '/platform/riskdata/v1/jobs'
 
 # Workflow statuses
-WORKFLOW_COMPLETED_STATUSES = ['FINISHED', 'FAILED', 'CANCELLED'] # https://developer.rms.com/risk-modeler/docs/workflow-engine#polling-workflow-job-and-operation-statuses
+WORKFLOW_FINISHED_STATUS = 'FINISHED'
+WORKFLOW_COMPLETED_STATUSES = [WORKFLOW_FINISHED_STATUS, 'FAILED', 'CANCELLED'] # https://developer.rms.com/risk-modeler/docs/workflow-engine#polling-workflow-job-and-operation-statuses
 WORKFLOW_IN_PROGRESS_STATUSES = ['QUEUED', 'PENDING', 'RUNNING', 'CANCEL_REQUESTED', 'CANCELLING']
 
 # EDM/Datasource endpoints
