@@ -2359,6 +2359,57 @@ Each region entry contains framework, peril, region codes, and simulation identi
  - **IRPValidationError:**  If analysis_id is invalid
  - **IRPAPIError:**  If request fails
 
+#### `search_analysis_treaties`
+
+```python
+def search_analysis_treaties(
+    self,
+    analysis_id: int,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search the treaties applied to an analysis.
+
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of treaty dictionaries
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If API request fails
+
+#### `search_analysis_treaties_paginated`
+
+```python
+def search_analysis_treaties_paginated(self, analysis_id: int) -> List[Dict[str, Any]]
+```
+
+Search all treaties applied to an analysis with automatic pagination.
+
+Fetches all pages of results, paging via ``paginate_search``.
+
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+
+**Returns:**
+> Complete list of all treaties across all pages. Each treaty contains
+> treatyId, treatyNumber, treatyName, cedant, producer, treatyType
+> (CATA, QUOT, SURP, WORK, CORP, STOP, NCAT), currency, attachmentBasis
+> (L or R), attachmentLevel (PORT, ACCT, POL, LOC), premium,
+> occurrenceLimit, attachmentPoint, riskLimit, retentionAmount,
+> percentagePlaced, effectiveDate and expirationDate.
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
 #### `submit_analysis_export_job`
 
 ```python

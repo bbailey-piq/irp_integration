@@ -18,7 +18,8 @@ from .constants import (
     SEARCH_ANALYSIS_JOBS, SEARCH_ANALYSIS_RESULTS,
     WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES,
     GET_ANALYSIS_ELT, GET_ANALYSIS_EP, GET_ANALYSIS_STATS, GET_ANALYSIS_PLT,
-    GET_ANALYSIS_REGIONS, PERSPECTIVE_CODES, CREATE_EXPORT_JOB
+    GET_ANALYSIS_REGIONS, GET_ANALYSIS_TREATIES, PERSPECTIVE_CODES,
+    CREATE_EXPORT_JOB
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
@@ -1554,7 +1555,73 @@ class AnalysisManager:
             return response.json()
         except Exception as e:
             raise IRPAPIError(f"Failed to get regions for analysis {analysis_id}: {e}")
-        
+
+    def search_analysis_treaties(
+        self,
+        analysis_id: int,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Search the treaties applied to an analysis.
+
+        Args:
+            analysis_id: Analysis ID
+            limit: Maximum results per page (default: 100)
+            offset: Offset for pagination (default: 0)
+
+        Returns:
+            List of treaty dictionaries
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If API request fails
+        """
+        validate_positive_int(analysis_id, "analysis_id")
+        params: Dict[str, Any] = {'limit': limit, 'offset': offset}
+        try:
+            response = self.client.request(
+                'GET',
+                GET_ANALYSIS_TREATIES.format(analysisId=analysis_id),
+                params=params
+            )
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(f"Failed to get treaties for analysis {analysis_id}: {e}")
+
+    def search_analysis_treaties_paginated(self, analysis_id: int) -> List[Dict[str, Any]]:
+        """
+        Search all treaties applied to an analysis with automatic pagination.
+
+        Fetches all pages of results, paging via ``paginate_search``.
+
+        Args:
+            analysis_id: Analysis ID
+
+        Returns:
+            Complete list of all treaties across all pages. Each treaty contains
+            treatyId, treatyNumber, treatyName, cedant, producer, treatyType
+            (CATA, QUOT, SURP, WORK, CORP, STOP, NCAT), currency, attachmentBasis
+            (L or R), attachmentLevel (PORT, ACCT, POL, LOC), premium,
+            occurrenceLimit, attachmentPoint, riskLimit, retentionAmount,
+            percentagePlaced, effectiveDate and expirationDate.
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
+        """
+        validate_positive_int(analysis_id, "analysis_id")
+
+        return paginate_search(
+            lambda limit, offset: self.search_analysis_treaties(
+                analysis_id=analysis_id,
+                limit=limit,
+                offset=offset
+            ),
+            f"Treaty search for analysis ID {analysis_id}"
+        )
+
     def submit_analysis_export_job(
         self,
         analysis_id: int,

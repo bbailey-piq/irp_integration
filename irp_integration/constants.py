@@ -120,6 +120,7 @@ GET_ANALYSIS_EP = '/platform/riskdata/v1/analyses/{analysisId}/ep'
 GET_ANALYSIS_STATS = '/platform/riskdata/v1/analyses/{analysisId}/stats'
 GET_ANALYSIS_PLT = '/platform/riskdata/v1/analyses/{analysisId}/plt'
 GET_ANALYSIS_REGIONS = '/platform/riskdata/v1/analyses/{analysisId}/regions'
+GET_ANALYSIS_TREATIES = '/platform/riskdata/v1/analyses/{analysisId}/treaties'
 
 # Perspective codes for analysis results
 PERSPECTIVE_CODES = [
