@@ -41,6 +41,10 @@ Auth/config:
           construction to obtain a short-lived (1-hour) bearer token and
           sends ``Authorization: Bearer {accessToken}``.
 
+    Requests made with ``full_url`` use the same authenticated session. Export
+    result downloads therefore send the configured ``Authorization`` header
+    and use the session retry policy.
+
     The API key takes precedence when both option sets are present.
     Bearer tokens are refreshed reactively: a ``401`` triggers a single
     re-login with the stored credentials and one retry of the request.
@@ -246,7 +250,8 @@ class Client:
         Args:
             method: HTTP method (GET, POST, PUT, DELETE, etc.)
             path: API path (e.g., '/api/v1/datasources')
-            full_url: Full URL (overrides path/base_url if provided)
+            full_url: Full URL (overrides path/base_url if provided). The
+                request still uses the authenticated session.
             base_url: Base URL (overrides default if provided)
             params: Query parameters
             json: JSON request body

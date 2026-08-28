@@ -99,6 +99,8 @@ The API base URL (``RISK_MODELER_BASE_URL``) and resource group (``RISK_MODELER_
 - **API key** (default / preserves existing behavior): if ``RISK_MODELER_API_KEY`` is set, it is sent verbatim in the ``Authorization`` header.
 - **Bearer login**: if the API key is absent but ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and ``RISK_MODELER_PASSWORD`` are all set, the client logs in at construction to obtain a short-lived (1-hour) bearer token and sends ``Authorization: Bearer {accessToken}``.
 
+Requests made with ``full_url`` use the same authenticated session. Export result downloads therefore send the configured ``Authorization`` header and use the session retry policy.
+
 The API key takes precedence when both option sets are present. Bearer tokens are refreshed reactively: a ``401`` triggers a single re-login with the stored credentials and one retry of the request. ``__init__`` raises if neither complete option set is configured.
 
 ### `class Client`
@@ -163,7 +165,8 @@ Make HTTP request to API.
 **Arguments:**
  - **method:**  HTTP method (GET, POST, PUT, DELETE, etc.)
  - **path:**  API path (e.g., '/api/v1/datasources')
- - **full_url:**  Full URL (overrides path/base_url if provided)
+ - **full_url:**  Full URL (overrides path/base_url if provided). The
+   request still uses the authenticated session.
  - **base_url:**  Base URL (overrides default if provided)
  - **params:**  Query parameters
  - **json:**  JSON request body
@@ -3160,6 +3163,7 @@ Get export job status by job ID.
 **Raises:**
  - **IRPValidationError:**  If job_id is invalid
  - **IRPAPIError:**  If request fails
+ - **IRPAuthenticationError:**  If authenticated access fails
 
 #### `poll_export_job_to_completion`
 
@@ -3195,8 +3199,10 @@ def download_export_results(self, job_id: int, output_dir: str) -> str
 
 Download exported analysis results for a completed export job.
 
-Fetches the job, extracts the downloadUrl from the DOWNLOAD_RESULTS task,
-and streams the zip file to the output directory.
+Fetches the job, extracts ``downloadUrl`` from the ``DOWNLOAD_RESULTS``
+task, and uses the authenticated client session to stream the ZIP file
+to the output directory. The completed download replaces an existing
+file with the same decoded filename only after the ZIP is validated.
 
 **Arguments:**
  - **job_id:**  Export job ID (must be FINISHED)
@@ -3208,7 +3214,11 @@ and streams the zip file to the output directory.
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
  - **IRPJobError:**  If job is not finished
- - **IRPAPIError:**  If download URL not found or download fails
+ - **IRPAuthenticationError:**  If authenticated download access fails
+ - **IRPAPIError:**  If ``downloadUrl`` is missing, the response is
+   incomplete, or the response is not a ZIP file
+ - **IRPFileError:**  If the output directory or downloaded file cannot be
+   written or renamed
 
 ---
 
