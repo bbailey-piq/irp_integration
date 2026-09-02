@@ -213,6 +213,37 @@ def test_conflicting_pure_elt_requires_one_of_the_observed_schemes():
     assert [option.event_rate_scheme_id for option in partition.event_rate_scheme_options] == [101, 102]
 
 
+def test_display_name_region_rows_resolve_to_the_detail_codes():
+    """Platform region rows carry ``peril`` as a display name and the detail
+    lists the scheme name under ``eventRateSchemeNames``; both members must
+    land in one coded partition with labelled choices and no problems."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    for detail in details.values():
+        detail.update({
+            "peril": "Windstorm",
+            "region": "North Atlantic (including Hawaii)",
+            "eventRateSchemeName": None,
+            "eventRateSchemeNames": [
+                {"id": 0, "code": "0", "name": f"Scheme {detail['eventRateSchemeId']}"}
+            ],
+        })
+    for rows in regions.values():
+        for row in rows:
+            row["peril"] = "Windstorm"
+    manager, _, _ = make_manager(details, regions)
+
+    result = manager.inspect(analysis_ids=[1, 2])
+
+    assert result.blocking_problems == ()
+    assert [partition.key for partition in result.partitions] == [
+        GroupingPartitionKey("WS", "NA", "11.0")
+    ]
+    assert [
+        (option.event_rate_scheme_id, option.label)
+        for option in result.partitions[0].event_rate_scheme_options
+    ] == [(101, "Scheme 101"), (102, "Scheme 102")]
+
+
 def test_reversing_members_keeps_partition_and_choice_order():
     """Normalize partitions independently of member order."""
     manager, _, _ = make_manager(*pure_elt_fixtures(conflicting=True))

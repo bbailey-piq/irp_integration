@@ -218,9 +218,28 @@ def _field(data: Mapping[str, Any], *names: str) -> Any:
     return None
 
 
+def _resolve_code(value: Any, code: Optional[str], name: Optional[str]) -> Optional[str]:
+    """Return ``value`` as a code. Region rows carry display names such as
+    ``"Windstorm"`` in ``peril`` while the analysis detail carries both
+    ``perilCode`` and ``peril``; a value equal to the detail's display name
+    resolves to the detail's code, anything else is returned unchanged."""
+    text = _text(value)
+    if text is None:
+        return None
+    if name is not None and text.casefold() == name.casefold():
+        return code
+    return text
+
+
 def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int], Optional[str]]:
     direct = _field(analysis, "eventRateSchemeId", "rateSchemeId")
     label = _text(_field(analysis, "eventRateSchemeName", "rateSchemeName"))
+    if label is None:
+        # The detail lists scheme names under ``eventRateSchemeNames`` with
+        # ``id`` 0, so a name is attributed only when exactly one is listed.
+        names = analysis.get("eventRateSchemeNames")
+        if isinstance(names, list) and len(names) == 1 and isinstance(names[0], Mapping):
+            label = _text(names[0].get("name"))
     if _positive_int(direct):
         return int(direct), label
 
@@ -493,6 +512,8 @@ class GroupingManager:
             detail_engine = _text(_field(analysis, "engineVersion", "softwareVersionCode"))
             detail_peril = _text(_field(analysis, "perilCode", "peril"))
             detail_region = _text(_field(analysis, "regionCode", "region"))
+            detail_peril_name = _text(analysis.get("peril"))
+            detail_region_name = _text(analysis.get("region"))
             analysis_scheme, analysis_label = _event_rate_from_analysis(analysis)
             if analysis_scheme is not None:
                 labels[analysis_scheme] = analysis_label
@@ -518,8 +539,12 @@ class GroupingManager:
                     continue
                 observed_frameworks.add(framework)
                 row_engine = _text(_field(raw_region, "engineVersion", "softwareVersionCode"))
-                row_peril = _text(_field(raw_region, "perilCode", "peril"))
-                row_region = _text(_field(raw_region, "regionCode", "region"))
+                row_peril = _resolve_code(
+                    _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
+                )
+                row_region = _resolve_code(
+                    _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
+                )
                 engine = row_engine or detail_engine
                 peril = row_peril or detail_peril
                 region = row_region or detail_region
