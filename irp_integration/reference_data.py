@@ -17,7 +17,7 @@ from .validators import (
     validate_non_empty_string, validate_list_not_empty, validate_positive_int,
     validate_non_negative_int, validate_sort_order
 )
-from .utils import extract_id_from_location_header
+from .utils import extract_id_from_location_header, paginate_search
 
 if TYPE_CHECKING:
     from . import IRPClient
@@ -558,19 +558,25 @@ class ReferenceDataManager:
         Raises:
             IRPAPIError: If request fails
         """
-        params = {
-            'isActive': True,
-            'isActivePEQ': True,
-            'sort': 'id',
-            'sortOrder': 1,
-            'where': 'isActive=true'
-        }
-
-        try:
+        def fetch(limit: int, offset: int) -> List[Dict[str, Any]]:
+            params = {
+                'isActive': True,
+                'isActivePEQ': True,
+                'sort': 'id',
+                'sortOrder': 1,
+                'where': 'isActive=true',
+                'limit': limit,
+                'offset': offset,
+            }
             response = self.client.request('GET', SEARCH_SIMULATION_SETS, params=params)
             return response.json().get('items', [])
+
+        try:
+            return paginate_search(fetch, "simulation-set search", limit=500)
+        except IRPAPIError:
+            raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to get simulation sets: {e}")
+            raise IRPAPIError(f"Failed to get simulation sets: {e}") from e
 
     def get_simulation_set_by_event_rate_scheme_id(self, event_rate_scheme_id: int) -> Dict[str, Any]:
         """
@@ -590,12 +596,65 @@ class ReferenceDataManager:
         """
         simulation_sets = self.get_all_simulation_sets()
 
-        for sim_set in simulation_sets:
-            if sim_set.get('eventRateSchemeId') == event_rate_scheme_id:
-                return sim_set
-
+        matches = [
+            sim_set for sim_set in simulation_sets
+            if sim_set.get('eventRateSchemeId') == event_rate_scheme_id
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise IRPAPIError(
+                f"No simulation set found for event rate scheme ID {event_rate_scheme_id}"
+            )
         raise IRPAPIError(
-            f"No simulation set found for event rate scheme ID {event_rate_scheme_id}"
+            f"Multiple simulation sets found for event rate scheme ID {event_rate_scheme_id}"
+        )
+
+    def get_simulation_set_exact(
+        self,
+        *,
+        event_rate_scheme_id: int,
+        model_region_code: str,
+        model_version: str,
+    ) -> Dict[str, Any]:
+        """Return one exact simulation-set mapping for grouping.
+
+        Args:
+            event_rate_scheme_id: Positive event-rate scheme ID
+            model_region_code: Exact broad model region code, such as ``NAWS``
+            model_version: Exact model version code
+
+        Returns:
+            The sole matching simulation-set row
+
+        Raises:
+            IRPValidationError: If an argument is malformed
+            IRPAPIError: If zero or multiple rows match
+        """
+        validate_positive_int(event_rate_scheme_id, "event_rate_scheme_id")
+        validate_non_empty_string(model_region_code, "model_region_code")
+        validate_non_empty_string(model_version, "model_version")
+        matches = []
+        for sim_set in self.get_all_simulation_sets():
+            row_version = sim_set.get('modelVersionCode', sim_set.get('modelVersion'))
+            if (
+                sim_set.get('eventRateSchemeId') == event_rate_scheme_id
+                and sim_set.get('modelRegionCode') == model_region_code
+                and str(row_version) == model_version
+            ):
+                matches.append(sim_set)
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise IRPAPIError(
+                "No simulation set found for event rate scheme ID "
+                f"{event_rate_scheme_id}, model region '{model_region_code}', "
+                f"and model version '{model_version}'"
+            )
+        raise IRPAPIError(
+            "Multiple simulation sets found for event rate scheme ID "
+            f"{event_rate_scheme_id}, model region '{model_region_code}', "
+            f"and model version '{model_version}'"
         )
 
     def get_simulation_set_by_region_peril_and_engine(
@@ -604,14 +663,13 @@ class ReferenceDataManager:
         """
         Get simulation set by regionCode, perilCode, and engineVersion.
 
-        This is a fallback method used when eventRateSchemeId is not available.
         The lookup uses regionCode + perilCode to build the broader modelRegionCode
         (e.g., "NA" + "WS" = "NAWS") since SimulationSet entries use broader regional
         codes, not sub-region-specific codes like "HTWS".
 
-        Note: When multiple simulation sets match, returns the one with highest id
-        (most recent). For precise matching, use get_simulation_set_by_event_rate_scheme_id
-        with the eventRateSchemeId from the analysis additionalProperties.
+        The method rejects multiple matches. Grouping uses
+        ``get_simulation_set_exact`` because this lookup does not include an
+        event-rate scheme or model version.
 
         Args:
             region_code: Region code (e.g., "NA", "US", "CB")
@@ -656,8 +714,10 @@ class ReferenceDataManager:
         if len(matching_sets) == 1:
             return matching_sets[0]
 
-        # Multiple matches - return highest id (most recent)
-        return max(matching_sets, key=lambda x: x.get('id', 0))
+        raise IRPAPIError(
+            f"Multiple simulation sets found for regionCode '{region_code}', "
+            f"perilCode '{peril_code}', engineVersion '{engine_version}'"
+        )
 
     def get_all_pet_metadata(self) -> List[Dict[str, Any]]:
         """
@@ -671,13 +731,18 @@ class ReferenceDataManager:
         Raises:
             IRPAPIError: If request fails
         """
-        params = {'limit': 500, 'offset': 0}
+        def fetch(limit: int, offset: int) -> List[Dict[str, Any]]:
+            response = self.client.request(
+                'GET', SEARCH_PET_METADATA, params={'limit': limit, 'offset': offset}
+            )
+            return response.json().get('items', [])
 
         try:
-            response = self.client.request('GET', SEARCH_PET_METADATA, params=params)
-            return response.json().get('items', [])
+            return paginate_search(fetch, "PET metadata search", limit=500)
+        except IRPAPIError:
+            raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to get PET metadata: {e}")
+            raise IRPAPIError(f"Failed to get PET metadata: {e}") from e
 
     def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]:
         """
@@ -700,11 +765,12 @@ class ReferenceDataManager:
 
         pet_metadata_list = self.get_all_pet_metadata()
 
-        for pet in pet_metadata_list:
-            if pet.get('id') == pet_id:
-                return pet
-
-        raise IRPAPIError(f"No PET metadata found for PET ID {pet_id}")
+        matches = [pet for pet in pet_metadata_list if pet.get('id') == pet_id]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise IRPAPIError(f"No PET metadata found for PET ID {pet_id}")
+        raise IRPAPIError(f"Multiple PET metadata rows found for PET ID {pet_id}")
 
     def get_all_software_model_version_map(self) -> List[Dict[str, Any]]:
         """
@@ -786,12 +852,19 @@ class ReferenceDataManager:
 
         version_maps = self.get_all_software_model_version_map()
 
-        for version_map in version_maps:
-            if (version_map.get('softwareVersionCode') == engine_version and
-                    version_map.get('modelRegionCode') == broader_model_region_code):
-                return version_map['modelVersionCode']
-
+        matches = [
+            version_map for version_map in version_maps
+            if version_map.get('softwareVersionCode') == engine_version
+            and version_map.get('modelRegionCode') == broader_model_region_code
+        ]
+        if len(matches) == 1:
+            return matches[0]['modelVersionCode']
+        if not matches:
+            raise IRPAPIError(
+                f"No model version mapping found for engine version '{engine_version}', "
+                f"region code '{region_code}', peril code '{peril_code}'"
+            )
         raise IRPAPIError(
-            f"No model version mapping found for engine version '{engine_version}', "
+            f"Multiple model version mappings found for engine version '{engine_version}', "
             f"region code '{region_code}', peril code '{peril_code}'"
         )

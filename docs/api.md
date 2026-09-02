@@ -8,7 +8,7 @@ The single entry point is ``IRPClient``, which holds one HTTP client and exposes
 
 **Managers (``client.<name>``):**
 
-edm, portfolio, mri_import, treaty, analysis, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
+edm, portfolio, mri_import, treaty, analysis, grouping, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
 
 Name-based interface: high-level methods accept human-readable names (EDM names, portfolio names, profile names, treaty names) and resolve them to IDs internally.
 
@@ -35,6 +35,21 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [TreatyManager](#class-treatymanager)
 - [`irp_integration.analysis`](#irp_integrationanalysis)
   - [AnalysisManager](#class-analysismanager)
+- [`irp_integration.grouping`](#irp_integrationgrouping)
+  - [EventRateSchemeOption](#class-eventrateschemeoption)
+  - [EventRateSelection](#class-eventrateselection)
+  - [GroupingCurrency](#class-groupingcurrency)
+  - [GroupingInspection](#class-groupinginspection)
+  - [GroupingManager](#class-groupingmanager)
+  - [GroupingMember](#class-groupingmember)
+  - [GroupingPartition](#class-groupingpartition)
+  - [GroupingPartitionKey](#class-groupingpartitionkey)
+  - [GroupingProblem](#class-groupingproblem)
+  - [GroupingProblemCode](#class-groupingproblemcode)
+  - [GroupingRegionFact](#class-groupingregionfact)
+  - [GroupingSettings](#class-groupingsettings)
+  - [GroupingSimulationMapping](#class-groupingsimulationmapping)
+  - [GroupingSubmission](#class-groupingsubmission)
 - [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
 - [`irp_integration.rdm`](#irp_integrationrdm)
   - [RDMManager](#class-rdmmanager)
@@ -56,6 +71,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [IRPAPIError](#class-irpapierror)
   - [IRPAuthenticationError](#class-irpauthenticationerror)
   - [IRPValidationError](#class-irpvalidationerror)
+  - [IRPGroupingValidationError](#class-irpgroupingvalidationerror)
   - [IRPWorkflowError](#class-irpworkflowerror)
   - [IRPReferenceDataError](#class-irpreferencedataerror)
   - [IRPFileError](#class-irpfileerror)
@@ -1695,7 +1711,7 @@ Create a Line of Business (LOB) for a treaty.
 
 Analysis management operations.
 
-Handles portfolio analysis submission, job tracking, and analysis group creation.
+Handles portfolio analysis submission, job tracking, and result retrieval.
 
 ### `class AnalysisManager`
 
@@ -1808,212 +1824,6 @@ Submit portfolio analysis job (submits but doesn't wait).
    be resolved; if the model profile is DLM and no event rate scheme
    name was given; or if the event rate scheme's perilCode and
    modelRegionCode do not match the model profile's
-
-#### `submit_analysis_grouping_jobs`
-
-```python
-def submit_analysis_grouping_jobs(
-    self,
-    grouping_data_list: List[Dict[str, Any]],
-    analysis_edm_map: Optional[Dict[str, str]] = None,
-    group_names: Optional[set] = None,
-    skip_missing: bool = True
-) -> List[int]
-```
-
-Submit multiple analysis grouping jobs.
-
-**Arguments:**
- - **grouping_data_list:**  List of grouping data dicts, each containing:
-   - group_name: str
-   - analysis_names: List[str] (can include both analysis names and group names)
- - **analysis_edm_map:**  Optional mapping of analysis names to EDM names.
-   Used to look up analyses by name + EDM (since analysis names are only
-   unique within an EDM). If not provided, lookups use name only.
- - **group_names:**  Optional set of known group names. Items in this set are
-   looked up as groups (by name only), all others are looked up as
-   analyses (by name + EDM if mapping provided).
- - **skip_missing:**  If True (default), skip analyses/groups that don't exist.
-   Jobs where all items are missing will be skipped entirely.
-
-**Returns:**
-> List of job IDs (excludes skipped jobs)
-
-**Raises:**
- - **IRPValidationError:**  If grouping_data_list is empty or invalid
- - **IRPAPIError:**  If grouping submission fails or analysis names not found
-
-#### `build_region_peril_simulation_set`
-
-```python
-def build_region_peril_simulation_set(self, analysis_ids: List[int]) -> List[Dict[str, Any]]
-```
-
-Build regionPerilSimulationSet from analysis/group IDs for grouping requests.
-
-This method fetches regions for each analysis/group and builds the required
-regionPerilSimulationSet structure. This is required for mixed ELT/PLT grouping
-(combining DLM and HD analyses/groups).
-
-For ELT framework (DLM):
-    - eventRateSchemeId comes from regions response (rateSchemeId)
-    - simulationSetId is looked up from SimulationSet table using eventRateSchemeId
-
-For PLT framework (HD):
-    - eventRateSchemeId = 0 (always zero for PLT in grouping requests)
-    - simulationSetId = petId from regions response
-
-For Compound Perils (subPeril contains "+"):
-    - If ALL analyses have compound perils -> return empty array
-    - If SOME analyses have compound perils -> all analyses contribute normally
-    - The API handles event correlation internally when array is empty
-    - Examples: "Surge + Wind", "Tornado + Hail + Wind"
-
-**Arguments:**
- - **analysis_ids:**  List of analysis or group IDs to include
-
-**Returns:**
-> List of region/peril simulation set entries, each containing:
->     - engineVersion: Engine version (e.g., "RL23", "HDv2.0")
->     - eventRateSchemeId: Event rate scheme ID (0 for PLT)
->     - modelRegionCode: Model region code (subRegion from regions)
->     - modelVersion: Model version (looked up from SoftwareModelVersionMap)
->     - perilCode: Peril code (e.g., "EQ", "WS", "FL")
->     - regionCode: Region code (e.g., "NA", "US")
->     - simulationPeriods: Number of simulation periods
->     - simulationSetId: Simulation set ID
-> 
-> Returns empty list if ALL analyses have compound perils.
-
-**Raises:**
- - **IRPAPIError:**  If any API calls fail
-
-#### `submit_analysis_grouping_job`
-
-```python
-def submit_analysis_grouping_job(
-    self,
-    group_name: str,
-    analysis_names: List[str],
-    simulate_to_plt: bool = False,
-    num_simulations: int = 50000,
-    propagate_detailed_losses: bool = False,
-    reporting_window_start: str = '01/01/2021',
-    simulation_window_start: str = '01/01/2021',
-    simulation_window_end: str = '12/31/2021',
-    region_peril_simulation_set: Optional[List[Dict[str, Any]]] = None,
-    description: str = '',
-    currency: Optional[Dict[str, str]] = None,
-    analysis_edm_map: Optional[Dict[str, str]] = None,
-    group_names: Optional[set] = None,
-    skip_missing: bool = True
-) -> Dict[str, Any]
-```
-
-Submit analysis grouping job.
-
-**Arguments:**
- - **group_name:**  Name for analysis group
- - **analysis_names:**  List of names to include in the group (can be analyses or groups)
- - **simulate_to_plt:**  Whether to simulate to PLT (default: True)
- - **num_simulations:**  Number of simulations (default: 50000)
- - **propagate_detailed_losses:**  Whether to propagate detailed losses (default: False)
- - **reporting_window_start:**  Reporting window start date (default: "01/01/2021")
- - **simulation_window_start:**  Simulation window start date (default: "01/01/2021")
- - **simulation_window_end:**  Simulation window end date (default: "12/31/2021")
- - **region_peril_simulation_set:**  Region/peril simulation set (default: None)
- - **description:**  Group description (default: "")
- - **currency:**  Currency configuration (default: None, uses system default)
- - **analysis_edm_map:**  Optional mapping of analysis names to EDM names.
-   Used to look up analyses by name + EDM (since analysis names are only
-   unique within an EDM). If not provided, lookups use name only.
- - **group_names:**  Optional set of known group names. Items in this set are
-   looked up as groups (by name only), all others are looked up as
-   analyses (by name + EDM if mapping provided).
- - **skip_missing:**  If True (default), skip analyses/groups that don't exist
-   instead of raising an error. If all items are missing, returns
-   a result with job_id=None and skipped=True.
-
-**Returns:**
-> Dict containing:
->     - job_id: Analysis group job ID (int), or None if skipped
->     - skipped: True if job was skipped (all analyses missing)
->     - skipped_items: List of item names that were not found and skipped
->     - included_items: List of item names that were found and included
-
-**Raises:**
- - **IRPValidationError:**  If inputs are invalid
- - **IRPAPIError:**  If request fails, or if skip_missing=False and items not found
-
-#### `get_analysis_grouping_job`
-
-```python
-def get_analysis_grouping_job(self, job_id: int) -> Dict[str, Any]
-```
-
-Retrieve analysis grouping job status by job ID.
-
-**Arguments:**
- - **job_id:**  Job ID
-
-**Returns:**
-> Dict containing job status details
-
-**Raises:**
- - **IRPValidationError:**  If job_id is invalid
- - **IRPAPIError:**  If request fails
-
-#### `poll_analysis_grouping_job_to_completion`
-
-```python
-def poll_analysis_grouping_job_to_completion(
-    self,
-    job_id: int,
-    interval: int = 10,
-    timeout: int = 600000
-) -> Dict[str, Any]
-```
-
-Poll analysis grouping job until completion or timeout.
-
-**Arguments:**
- - **job_id:**  Job ID
- - **interval:**  Polling interval in seconds (default: 10)
- - **timeout:**  Maximum timeout in seconds (default: 600000)
-
-**Returns:**
-> Final job status details
-
-**Raises:**
- - **IRPValidationError:**  If parameters are invalid
- - **IRPJobError:**  If job times out
- - **IRPAPIError:**  If polling fails
-
-#### `poll_analysis_grouping_job_batch_to_completion`
-
-```python
-def poll_analysis_grouping_job_batch_to_completion(
-    self,
-    job_ids: List[int],
-    interval: int = 20,
-    timeout: int = 600000
-) -> List[Dict[str, Any]]
-```
-
-Poll multiple analysis grouping jobs until all complete or timeout.
-
-**Arguments:**
- - **job_ids:**  List of job IDs
- - **interval:**  Polling interval in seconds (default: 20)
- - **timeout:**  Maximum timeout in seconds (default: 600000)
-
-**Returns:**
-> List of final job status details for all jobs
-
-**Raises:**
- - **IRPValidationError:**  If parameters are invalid
- - **IRPJobError:**  If jobs time out
- - **IRPAPIError:**  If polling fails
 
 #### `get_analysis_job`
 
@@ -2440,6 +2250,304 @@ Submit an analysis results export job.
 **Raises:**
  - **IRPValidationError:**  If inputs are invalid
  - **IRPAPIError:**  If the analysis doesn't exist or request fails
+
+---
+
+## `irp_integration.grouping`
+
+Rules-based analysis grouping operations.
+
+Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately.
+
+Treaty terms are intentionally not read or compared. Inconsistent terms that share a Treaty Number can therefore produce unexpected grouped results.
+
+### `class EventRateSchemeOption`
+
+Event-rate scheme observed on at least one selected analysis.
+
+#### `__init__`
+
+```python
+def __init__(self, event_rate_scheme_id: int, label: Optional[str] = None)
+```
+
+### `class EventRateSelection`
+
+Caller-selected event-rate scheme for a conflicting partition.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    partition: irp_integration.grouping.GroupingPartitionKey,
+    event_rate_scheme_id: int
+)
+```
+
+### `class GroupingCurrency`
+
+Explicit currency settings for a grouping request.
+
+#### `__init__`
+
+```python
+def __init__(self, code: str, scheme: str, vintage: str, as_of_date: str)
+```
+
+### `class GroupingInspection`
+
+Fresh facts, choices, warnings, and blocks for selected analyses.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_ids: Tuple[int, ...],
+    resource_uris: Tuple[str, ...],
+    inspected_at: str,
+    fingerprint: str,
+    members: Tuple[irp_integration.grouping.GroupingMember, ...],
+    output_loss_table: str,
+    simulate_to_plt: bool,
+    partitions: Tuple[irp_integration.grouping.GroupingPartition, ...],
+    simulation_mappings: Tuple[irp_integration.grouping.GroupingSimulationMapping, ...],
+    required_caller_inputs: Tuple[str, ...],
+    warnings: Tuple[irp_integration.grouping.GroupingProblem, ...],
+    blocking_problems: Tuple[irp_integration.grouping.GroupingProblem, ...]
+)
+```
+
+### `class GroupingManager`
+
+Inspect analysis members and submit resolved grouping requests.
+
+#### `__init__`
+
+```python
+def __init__(self, irp: irp_integration.IRPClient)
+```
+
+Initialize the grouping manager.
+
+**Arguments:**
+ - **irp:**  Owning IRP client instance
+
+#### `inspect`
+
+```python
+def inspect(
+    self,
+    *,
+    analysis_ids: Sequence[int]
+) -> irp_integration.grouping.GroupingInspection
+```
+
+Inspect selected analyses without creating a Platform grouping job.
+
+**Arguments:**
+ - **analysis_ids:**  At least two distinct positive Platform analysis IDs
+
+**Returns:**
+> Normalized member facts, choices, warnings, blocks, and fingerprint
+
+**Raises:**
+ - **IRPValidationError:**  If analysis_ids is malformed
+ - **IRPAPIError:**  If a Platform or reference-data read fails
+
+#### `submit`
+
+```python
+def submit(
+    self,
+    *,
+    analysis_ids: Sequence[int],
+    settings: irp_integration.grouping.GroupingSettings,
+    event_rate_selections: Sequence[irp_integration.grouping.EventRateSelection],
+    expected_inspection_fingerprint: str
+) -> irp_integration.grouping.GroupingSubmission
+```
+
+Reinspect, validate explicit choices, and create a grouping job.
+
+**Arguments:**
+ - **analysis_ids:**  At least two distinct positive Platform analysis IDs
+ - **settings:**  Explicit grouping request settings
+ - **event_rate_selections:**  One offered scheme for each conflicting partition
+ - **expected_inspection_fingerprint:**  Fingerprint returned by the caller's inspection
+
+**Returns:**
+> Created grouping job ID and exact submitted request body
+
+**Raises:**
+ - **IRPValidationError:**  If a direct method argument is malformed
+ - **IRPGroupingValidationError:**  If inspected facts or caller selections block submission
+ - **IRPAPIError:**  If a Platform read or grouping POST fails
+
+#### `get_job`
+
+```python
+def get_job(self, *, job_id: int) -> Dict[str, Any]
+```
+
+Retrieve grouping job status by job ID.
+
+**Arguments:**
+ - **job_id:**  Positive Platform grouping job ID
+
+**Returns:**
+> Grouping job status response
+
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If the Platform read fails
+
+### `class GroupingMember`
+
+Normalized facts for one requested Platform analysis ID.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_id: int,
+    exists: bool,
+    is_group: bool,
+    analysis_framework: Optional[str],
+    engine_type: Optional[str],
+    engine_version: Optional[str],
+    peril_code: Optional[str],
+    region_code: Optional[str],
+    model_version: Optional[str],
+    regions: Tuple[irp_integration.grouping.GroupingRegionFact, ...]
+)
+```
+
+### `class GroupingPartition`
+
+Grouping choices and PET facts for one documented partition.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    key: irp_integration.grouping.GroupingPartitionKey,
+    analysis_ids: Tuple[int, ...],
+    event_rate_scheme_options: Tuple[irp_integration.grouping.EventRateSchemeOption, ...],
+    observed_pet_ids: Tuple[int, ...],
+    event_rate_selection_required: bool,
+    simulation_set_compatible: bool
+)
+```
+
+### `class GroupingPartitionKey`
+
+Peril, region, and model-version key used by grouping rules.
+
+#### `__init__`
+
+```python
+def __init__(self, peril_code: str, region_code: str, model_version: str)
+```
+
+### `class GroupingProblem`
+
+Structured grouping problem suitable for caller rendering.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    code: str,
+    message: str,
+    analysis_ids: Tuple[int, ...] = (),
+    partition: Optional[irp_integration.grouping.GroupingPartitionKey] = None,
+    pet_ids: Tuple[int, ...] = ()
+)
+```
+
+### `class GroupingProblemCode`
+
+*Bases:* `builtins.str, enum.Enum`
+
+Stable codes returned for rule-based grouping problems.
+
+### `class GroupingRegionFact`
+
+Normalized Platform region fact used by grouping inspection.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_id: int,
+    framework: str,
+    peril_code: str,
+    region_code: str,
+    model_version: str,
+    engine_version: str,
+    sub_region: str,
+    model_region_code: str,
+    event_rate_scheme_id: Optional[int],
+    pet_id: Optional[int],
+    periods: Optional[int],
+    apply_contract_flag: bool
+)
+```
+
+### `class GroupingSettings`
+
+Explicit caller settings for a grouping request.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_name: str,
+    currency: irp_integration.grouping.GroupingCurrency,
+    propagate_detailed_losses: bool,
+    num_of_simulations: int,
+    description: Optional[str] = None,
+    reporting_window_start: Optional[str] = None,
+    simulation_window_start: Optional[str] = None,
+    simulation_window_end: Optional[str] = None
+)
+```
+
+### `class GroupingSimulationMapping`
+
+Exact reference-data mapping used for one simulated ELT region.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    partition: irp_integration.grouping.GroupingPartitionKey,
+    analysis_ids: Tuple[int, ...],
+    engine_version: str,
+    model_region_code: str,
+    event_rate_scheme_id: int,
+    simulation_set_id: int,
+    simulation_periods: int
+)
+```
+
+### `class GroupingSubmission`
+
+Created grouping job ID and the exact submitted request body.
+
+#### `__init__`
+
+```python
+def __init__(self, job_id: int, request_body: Dict[str, Any])
+```
 
 ---
 
@@ -3754,6 +3862,32 @@ this lookup using the eventRateSchemeId from the analysis regions.
 **Raises:**
  - **IRPAPIError:**  If request fails or simulation set not found
 
+#### `get_simulation_set_exact`
+
+```python
+def get_simulation_set_exact(
+    self,
+    *,
+    event_rate_scheme_id: int,
+    model_region_code: str,
+    model_version: str
+) -> Dict[str, Any]
+```
+
+Return one exact simulation-set mapping for grouping.
+
+**Arguments:**
+ - **event_rate_scheme_id:**  Positive event-rate scheme ID
+ - **model_region_code:**  Exact broad model region code, such as ``NAWS``
+ - **model_version:**  Exact model version code
+
+**Returns:**
+> The sole matching simulation-set row
+
+**Raises:**
+ - **IRPValidationError:**  If an argument is malformed
+ - **IRPAPIError:**  If zero or multiple rows match
+
 #### `get_simulation_set_by_region_peril_and_engine`
 
 ```python
@@ -3767,14 +3901,13 @@ def get_simulation_set_by_region_peril_and_engine(
 
 Get simulation set by regionCode, perilCode, and engineVersion.
 
-This is a fallback method used when eventRateSchemeId is not available.
 The lookup uses regionCode + perilCode to build the broader modelRegionCode
 (e.g., "NA" + "WS" = "NAWS") since SimulationSet entries use broader regional
 codes, not sub-region-specific codes like "HTWS".
 
-Note: When multiple simulation sets match, returns the one with highest id
-(most recent). For precise matching, use get_simulation_set_by_event_rate_scheme_id
-with the eventRateSchemeId from the analysis additionalProperties.
+The method rejects multiple matches. Grouping uses
+``get_simulation_set_exact`` because this lookup does not include an
+event-rate scheme or model version.
 
 **Arguments:**
  - **region_code:**  Region code (e.g., "NA", "US", "CB")
@@ -4240,6 +4373,23 @@ Raised when bearer-token login or token refresh fails (bad credentials, missing 
 Input validation errors.
 
 Raised when method parameters fail validation checks (e.g., empty strings, invalid IDs, missing files).
+
+### `class IRPGroupingValidationError`
+
+*Bases:* `IRPValidationError`
+
+Rule-based grouping validation errors with structured problems.
+
+#### `__init__`
+
+```python
+def __init__(self, problems: Sequence[irp_integration.grouping.GroupingProblem])
+```
+
+Initialize the error from one or more grouping problems.
+
+**Arguments:**
+ - **problems:**  Structured problems that prevented grouping submission
 
 ### `class IRPWorkflowError`
 

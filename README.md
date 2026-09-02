@@ -50,6 +50,54 @@ client.analysis.submit_portfolio_analysis_job(
 )
 ```
 
+### Analysis grouping
+
+Grouping uses a two-step contract. Inspect exact Platform analysis IDs first,
+render any returned event-rate choices or blocking problems, and pass the
+inspection fingerprint back when submitting. Submission repeats every read and
+creates no job if request-affecting facts changed.
+
+```python
+from irp_integration.grouping import (
+    EventRateSelection,
+    GroupingCurrency,
+    GroupingSettings,
+)
+
+inspection = client.grouping.inspect(analysis_ids=[12345, 12346])
+
+selections = tuple(
+    EventRateSelection(
+        partition=partition.key,
+        event_rate_scheme_id=partition.event_rate_scheme_options[0].event_rate_scheme_id,
+    )
+    for partition in inspection.partitions
+    if partition.event_rate_selection_required
+)
+
+submission = client.grouping.submit(
+    analysis_ids=inspection.analysis_ids,
+    settings=GroupingSettings(
+        analysis_name="Example Group",
+        currency=GroupingCurrency(
+            code="USD",
+            scheme="RMS",
+            vintage="RL25",
+            as_of_date="2026-01-01",
+        ),
+        propagate_detailed_losses=True,
+        num_of_simulations=50000,
+    ),
+    event_rate_selections=selections,
+    expected_inspection_fingerprint=inspection.fingerprint,
+)
+```
+
+The package does not choose event-rate schemes, simulation sets, simulation
+counts, currency, detailed-loss settings, windows, or a grouping set. It also
+does not retrieve or compare treaty terms. Inconsistent terms that share a
+Treaty Number can produce unexpected grouped results.
+
 ## Configuration
 
 The library reads configuration from environment variables:
@@ -183,7 +231,8 @@ results = dbm.execute_query_from_file(
 | `client.portfolio` | Portfolio CRUD, geocoding, and hazard processing |
 | `client.mri_import` | MRI (CSV) data import workflow — bucket creation, file upload, mapping, and execution |
 | `client.treaty` | Reinsurance treaty creation, LOB assignment, and reference data |
-| `client.analysis` | Risk analysis execution, profiles, event rate schemes, and analysis groups |
+| `client.analysis` | Risk analysis execution, profiles, event rate schemes, and results |
+| `client.grouping` | Rules-based analysis-group inspection, submission, and job status |
 | `client.rdm` | Results Data Mart — export analysis results to RDM |
 | `client.risk_data_job` | Risk data job status tracking |
 | `client.import_job` | Platform import job management (EDM/RDM imports) |
