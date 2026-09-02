@@ -2147,8 +2147,8 @@ def get_regions(self, analysis_id: int) -> List[Dict[str, Any]]
 Retrieve region/peril breakdown for an analysis or group.
 
 This is used to build the regionPerilSimulationSet for grouping requests.
-Each region entry contains framework, peril, region codes, and simulation identifiers
-(rateSchemeId for ELT, petId for PLT).
+Each region entry contains framework, peril display name, region code, and
+simulation identifiers (eventRateSchemeId for ELT, petId for PLT).
 
 **Arguments:**
  - **analysis_id:**  Analysis or group ID
@@ -2157,8 +2157,9 @@ Each region entry contains framework, peril, region codes, and simulation identi
 > List of region dicts containing:
 >     - region: Region code (e.g., "NA")
 >     - subRegion: Sub-region code (e.g., "I2")
->     - peril: Peril code (e.g., "EQ", "WS")
->     - rateSchemeId: Event rate scheme ID (for ELT framework)
+>     - peril: Peril display name (e.g., "Earthquake", "Windstorm"); the
+>       analysis detail carries the code in ``perilCode``
+>     - eventRateSchemeId: Event rate scheme ID (for ELT framework)
 >     - framework: Framework type ("ELT" or "PLT")
 >     - analysisId: The analysis ID
 >     - modelProfileId: Model profile ID

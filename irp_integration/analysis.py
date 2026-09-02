@@ -880,8 +880,8 @@ class AnalysisManager:
         Retrieve region/peril breakdown for an analysis or group.
 
         This is used to build the regionPerilSimulationSet for grouping requests.
-        Each region entry contains framework, peril, region codes, and simulation identifiers
-        (rateSchemeId for ELT, petId for PLT).
+        Each region entry contains framework, peril display name, region code, and
+        simulation identifiers (eventRateSchemeId for ELT, petId for PLT).
 
         Args:
             analysis_id: Analysis or group ID

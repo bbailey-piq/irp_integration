@@ -219,10 +219,13 @@ def _field(data: Mapping[str, Any], *names: str) -> Any:
 
 
 def _resolve_code(value: Any, code: Optional[str], name: Optional[str]) -> Optional[str]:
-    """Return ``value`` as a code. Region rows carry display names such as
-    ``"Windstorm"`` in ``peril`` while the analysis detail carries both
-    ``perilCode`` and ``peril``; a value equal to the detail's display name
-    resolves to the detail's code, anything else is returned unchanged."""
+    """Return ``value`` as a code.
+
+    Region rows carry display names such as ``"Windstorm"`` in ``peril`` while
+    the analysis detail carries both ``perilCode`` and ``peril``. A value equal
+    to the detail's display name resolves to the detail's code; anything else is
+    returned unchanged.
+    """
     text = _text(value)
     if text is None:
         return None
