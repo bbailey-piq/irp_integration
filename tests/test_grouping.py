@@ -97,26 +97,32 @@ class FakeReferenceDataManager:
     """Resolve fixture model versions, PETs, and exact simulation mappings."""
 
     def __init__(self) -> None:
-        self.pet_metadata = {
-            50: {
+        self.pet_metadata = [
+            {
                 "id": 50,
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
             },
-            51: {
+            {
                 "id": 51,
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
             },
-            60: {
+            {
                 "id": 60,
                 "modelRegionCode": "USEQ",
                 "modelVersionCode": "23.0",
                 "numberOfPeriods": 50000,
             },
-        }
+            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.0"},
+            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.0"},
+            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.1"},
+            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1"},
+        ]
+        self.pet_metadata_error: Optional[IRPAPIError] = None
+        self.pet_metadata_calls: List[Dict[str, Any]] = []
         self.simulation_error: Optional[IRPAPIError] = None
         self.simulation_calls: List[Dict[str, Any]] = []
         self.model_version_error: Optional[IRPAPIError] = None
@@ -127,13 +133,40 @@ class FakeReferenceDataManager:
         """Return the exact fixture model version."""
         if self.model_version_error:
             raise self.model_version_error
-        return "11.0" if engine_version == "RL23" else "2.0"
+        if engine_version == "RL23":
+            return "11.0"
+        if region_code == "US" and peril_code == "EQ":
+            return "23.0"
+        return "2.1" if engine_version == "HDv2.1" else "2.0"
 
     def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]:
-        """Return one PET fixture or an exact-lookup failure."""
-        if pet_id not in self.pet_metadata:
+        """Preserve strict lookup behavior in the test double."""
+        matches = [pet for pet in self.pet_metadata if pet["id"] == pet_id]
+        if not matches:
             raise IRPAPIError(f"No PET metadata found for PET ID {pet_id}")
-        return self.pet_metadata[pet_id]
+        if len(matches) > 1:
+            raise IRPAPIError(f"Multiple PET metadata rows found for PET ID {pet_id}")
+        return matches[0]
+
+    def get_pet_metadata_exact(self, **kwargs: Any) -> Dict[str, Any]:
+        """Return one PET fixture matching every supplied qualifier."""
+        self.pet_metadata_calls.append(kwargs)
+        if self.pet_metadata_error:
+            raise self.pet_metadata_error
+        matches = [
+            pet for pet in self.pet_metadata
+            if pet["id"] == kwargs["pet_id"]
+            and pet["modelVersionCode"] == kwargs["model_version"]
+            and (
+                kwargs["model_region_code"] is None
+                or pet["modelRegionCode"] == kwargs["model_region_code"]
+            )
+        ]
+        if not matches:
+            raise IRPAPIError("No PET metadata found")
+        if len(matches) > 1:
+            raise IRPAPIError("Multiple PET metadata rows found")
+        return matches[0]
 
     def get_simulation_set_exact(self, **kwargs: Any) -> Dict[str, Any]:
         """Return one exact simulation mapping for each offered scheme."""
@@ -573,6 +606,102 @@ def mixed_fixtures():
     return details, regions
 
 
+def jp_plt_fixtures(*, nested: bool = False):
+    """Return JP Typhoon and Non-Typhoon PLT members for model 2.1."""
+    details = {
+        1: analysis(
+            1,
+            framework="PLT",
+            engine_type="HD",
+            scheme_id=None,
+            is_group=nested,
+        ),
+        2: analysis(2, framework="PLT", engine_type="HD", scheme_id=None),
+    }
+    for detail in details.values():
+        detail.update({
+            "engineVersion": "HDv2.1",
+            "perilCode": "WS",
+            "regionCode": "JP",
+        })
+    regions = {
+        1: [region(1, framework="PLT", scheme_id=None, pet_id=15, periods=100000)],
+        2: [region(2, framework="PLT", scheme_id=None, pet_id=16, periods=100000)],
+    }
+    for rows in regions.values():
+        for row in rows:
+            row.update({
+                "engineVersion": "HDv2.1",
+                "peril": "WS",
+                "region": "JP",
+                "subRegion": "JP",
+            })
+    return details, regions
+
+
+def test_jp_typhoon_and_non_typhoon_pets_submit_for_model_2_1():
+    """Resolve duplicated PET IDs by version and submit both JPWS rows."""
+    manager, _, reference_data = make_manager(*jp_plt_fixtures(), post=True)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    result = manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
+
+    assert inspection.blocking_problems == ()
+    assert inspection.partitions[0].observed_pet_ids == (15, 16)
+    rows = result.request_body["settings"]["regionPerilSimulationSet"]
+    assert [(row["modelRegionCode"], row["modelVersion"], row["simulationSetId"])
+            for row in rows] == [("JPWS", "2.1", 15), ("JPWS", "2.1", 16)]
+    assert {
+        (call["pet_id"], call["model_version"], call["model_region_code"])
+        for call in reference_data.pet_metadata_calls
+    } == {(15, "2.1", "JPWS"), (16, "2.1", "JPWS")}
+
+
+def test_reversing_analysis_ids_preserves_request_row_order():
+    """Sort grouping request rows independently of caller analysis order."""
+    first_manager, _, _ = make_manager(*jp_plt_fixtures(), post=True)
+    first_inspection = first_manager.inspect(analysis_ids=[1, 2])
+    first = first_manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=first_inspection.fingerprint,
+    )
+    second_manager, _, _ = make_manager(*jp_plt_fixtures(), post=True)
+    second_inspection = second_manager.inspect(analysis_ids=[2, 1])
+    second = second_manager.submit(
+        analysis_ids=[2, 1],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=second_inspection.fingerprint,
+    )
+
+    assert (
+        first.request_body["settings"]["regionPerilSimulationSet"]
+        == second.request_body["settings"]["regionPerilSimulationSet"]
+    )
+
+
+@pytest.mark.parametrize(
+    "pet_error",
+    [IRPAPIError("No PET metadata found"), IRPAPIError("Multiple PET metadata rows found")],
+)
+def test_unavailable_exact_pet_metadata_does_not_warn_or_block(pet_error):
+    """Use analysis and software-version data when qualified PET lookup fails."""
+    manager, _, reference_data = make_manager(*jp_plt_fixtures())
+    reference_data.pet_metadata_error = pet_error
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.blocking_problems == ()
+    assert inspection.warnings == ()
+
+
 def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
     """Build a group PLT without replacing the selected scheme or member PET."""
     manager, client, _ = make_manager(*mixed_fixtures(), post=True)
@@ -592,8 +721,8 @@ def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
     assert client.calls[-1]["json"] == result.request_body
 
 
-def test_differing_pet_ids_in_one_partition_block():
-    """Report the affected partition and PET IDs without choosing a replacement."""
+def test_differing_pet_ids_in_one_partition_submit_every_pet():
+    """Submit each distinct source PET and leave compatibility to Platform."""
     details = {
         1: analysis(1, framework="PLT", engine_type="HD", scheme_id=None),
         2: analysis(2, framework="PLT", engine_type="HD", scheme_id=None),
@@ -602,13 +731,20 @@ def test_differing_pet_ids_in_one_partition_block():
         1: [region(1, framework="PLT", scheme_id=None, pet_id=50, periods=100000)],
         2: [region(2, framework="PLT", scheme_id=None, pet_id=51, periods=100000)],
     }
-    manager, _, _ = make_manager(details, regions)
+    manager, _, _ = make_manager(details, regions, post=True)
 
     inspection = manager.inspect(analysis_ids=[1, 2])
+    result = manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
 
-    problem = next(p for p in inspection.blocking_problems if p.code == "differing_pet_ids_unsupported")
-    assert problem.pet_ids == (50, 51)
-    assert problem.partition == GroupingPartitionKey("WF", "NA", "2.0")
+    assert inspection.blocking_problems == ()
+    assert inspection.partitions[0].observed_pet_ids == (50, 51)
+    rows = result.request_body["settings"]["regionPerilSimulationSet"]
+    assert [row["simulationSetId"] for row in rows] == [50, 51]
 
 
 def test_different_pet_ids_across_different_partitions_submit():
@@ -640,8 +776,8 @@ def test_different_pet_ids_across_different_partitions_submit():
     assert {entry["simulationSetId"] for entry in result.request_body["settings"]["regionPerilSimulationSet"]} == {50, 60}
 
 
-def test_nested_group_requires_one_output_pet_per_partition():
-    """Accept one nested output PET and identify an ambiguous nested partition."""
+def test_nested_group_submits_every_distinct_pet_row():
+    """Submit multiple PET IDs reported by a nested PLT group."""
     details = {
         1: analysis(1, framework="PLT", engine_type="HD", scheme_id=None, is_group=True),
         2: analysis(2, framework="PLT", engine_type="HD", scheme_id=None),
@@ -650,18 +786,24 @@ def test_nested_group_requires_one_output_pet_per_partition():
         1: [region(1, framework="PLT", scheme_id=None, pet_id=50, periods=100000)],
         2: [region(2, framework="PLT", scheme_id=None, pet_id=50, periods=100000)],
     }
-    manager, _, _ = make_manager(details, regions)
+    manager, _, _ = make_manager(details, regions, post=True)
     supported = manager.inspect(analysis_ids=[1, 2])
     assert supported.blocking_problems == ()
 
     regions[1].append(
         region(1, framework="PLT", scheme_id=None, pet_id=51, periods=100000)
     )
-    ambiguous = manager.inspect(analysis_ids=[1, 2])
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    result = manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
 
-    problem = next(p for p in ambiguous.blocking_problems if p.code == "nested_group_pet_ambiguous")
-    assert problem.analysis_ids == (1,)
-    assert problem.pet_ids == (50, 51)
+    assert inspection.blocking_problems == ()
+    rows = result.request_body["settings"]["regionPerilSimulationSet"]
+    assert [row["simulationSetId"] for row in rows] == [50, 51]
 
 
 def test_apply_contract_flag_blocks_plt_member():
@@ -673,6 +815,17 @@ def test_apply_contract_flag_blocks_plt_member():
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     assert "apply_contract_flag_unsupported" in {p.code for p in inspection.blocking_problems}
+
+
+def test_missing_plt_pet_id_blocks():
+    """Require a positive PET ID on every PLT region."""
+    details, regions = mixed_fixtures()
+    regions[2][0]["petId"] = None
+    manager, _, _ = make_manager(details, regions)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert "pet_id_missing" in {p.code for p in inspection.blocking_problems}
 
 
 def test_missing_plt_region_periods_block_even_when_pet_has_default_periods():

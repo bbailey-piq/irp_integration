@@ -49,11 +49,6 @@ class GroupingProblemCode(str, Enum):
     EVENT_RATE_SELECTION_NOT_OFFERED = "event_rate_selection_not_offered"
     PET_ID_MISSING = "pet_id_missing"
     PET_PERIODS_MISSING = "pet_periods_missing"
-    PET_METADATA_MISSING = "pet_metadata_missing"
-    PET_METADATA_AMBIGUOUS = "pet_metadata_ambiguous"
-    PET_METADATA_CONFLICT = "pet_metadata_conflict"
-    DIFFERING_PET_IDS_UNSUPPORTED = "differing_pet_ids_unsupported"
-    NESTED_GROUP_PET_AMBIGUOUS = "nested_group_pet_ambiguous"
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
     SIMULATION_SET_MAPPING_MISSING = "simulation_set_mapping_missing"
     SIMULATION_SET_MAPPING_AMBIGUOUS = "simulation_set_mapping_ambiguous"
@@ -120,7 +115,6 @@ class GroupingPartition:
     event_rate_scheme_options: Tuple[EventRateSchemeOption, ...]
     observed_pet_ids: Tuple[int, ...]
     event_rate_selection_required: bool
-    simulation_set_compatible: bool
 
 
 @dataclass(frozen=True)
@@ -279,7 +273,7 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 2
+    FINGERPRINT_VERSION = 3
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",
@@ -480,7 +474,10 @@ class GroupingManager:
         treaties: List[Dict[str, Any]] = []
         labels: Dict[int, Optional[str]] = {}
         version_cache: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]] = {}
-        pet_cache: Dict[int, Tuple[Optional[Dict[str, Any]], Optional[Exception]]] = {}
+        pet_cache: Dict[
+            Tuple[int, str, Optional[str]],
+            Tuple[Optional[Dict[str, Any]], Optional[Exception]],
+        ] = {}
 
         def model_version(engine: str, region: str, peril: str) -> Tuple[Optional[str], Optional[Exception]]:
             key = (engine, region, peril)
@@ -494,14 +491,23 @@ class GroupingManager:
                     version_cache[key] = (None, exc)
             return version_cache[key]
 
-        def pet_metadata(pet_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
-            if pet_id not in pet_cache:
+        def pet_metadata(
+            pet_id: int,
+            model_version: str,
+            model_region_code: Optional[str],
+        ) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
+            key = (pet_id, model_version, model_region_code)
+            if key not in pet_cache:
                 try:
-                    value = self._irp.reference_data.get_pet_metadata_by_id(pet_id)
-                    pet_cache[pet_id] = (value, None)
+                    value = self._irp.reference_data.get_pet_metadata_exact(
+                        pet_id=pet_id,
+                        model_version=model_version,
+                        model_region_code=model_region_code,
+                    )
+                    pet_cache[key] = (value, None)
                 except IRPAPIError as exc:
-                    pet_cache[pet_id] = (None, exc)
-            return pet_cache[pet_id]
+                    pet_cache[key] = (None, exc)
+            return pet_cache[key]
 
         for analysis_id in analysis_ids:
             try:
@@ -625,42 +631,6 @@ class GroupingManager:
                             message=f"PLT analysis {analysis_id} has a region with no positive PET ID.",
                             analysis_ids=(analysis_id,),
                         ))
-                    else:
-                        pet, pet_error = pet_metadata(pet_id)
-                        if pet_error is not None:
-                            code = (GroupingProblemCode.PET_METADATA_AMBIGUOUS.value
-                                    if "multiple" in str(pet_error).lower()
-                                    else GroupingProblemCode.PET_METADATA_MISSING.value)
-                            problems.append(GroupingProblem(
-                                code=code,
-                                message=f"PET {pet_id} could not be resolved exactly for analysis {analysis_id}.",
-                                analysis_ids=(analysis_id,),
-                                pet_ids=(pet_id,),
-                            ))
-                        elif pet is not None:
-                            pet_model_region = _text(pet.get("modelRegionCode"))
-                            if pet_model_region and len(pet_model_region) >= 3:
-                                pet_peril = pet_model_region[-2:]
-                                pet_region = pet_model_region[:-2]
-                                if ((row_peril and row_peril != pet_peril)
-                                        or (row_region and row_region != pet_region)):
-                                    problems.append(GroupingProblem(
-                                        code=GroupingProblemCode.PET_METADATA_CONFLICT.value,
-                                        message=(f"Analysis {analysis_id} region metadata conflicts "
-                                                 f"with PET {pet_id} model region {pet_model_region}."),
-                                        analysis_ids=(analysis_id,),
-                                        pet_ids=(pet_id,),
-                                    ))
-                                peril, region = pet_peril, pet_region
-                            resolved_version = _text(_field(pet, "modelVersionCode", "modelVersion"))
-                            if not pet_model_region or not resolved_version:
-                                problems.append(GroupingProblem(
-                                    code=GroupingProblemCode.PET_METADATA_MISSING.value,
-                                    message=(f"PET {pet_id} is missing model-region or "
-                                             "model-version metadata."),
-                                    analysis_ids=(analysis_id,),
-                                    pet_ids=(pet_id,),
-                                ))
                     if periods is None:
                         problems.append(GroupingProblem(
                             code=GroupingProblemCode.PET_PERIODS_MISSING.value,
@@ -705,6 +675,19 @@ class GroupingManager:
                         analysis_ids=(analysis_id,),
                     ))
                     continue
+
+                if framework == "PLT" and pet_id is not None:
+                    broad_model_region = f"{region}{peril}"
+                    pet, _ = pet_metadata(
+                        pet_id,
+                        resolved_version,
+                        broad_model_region,
+                    )
+                    if pet is not None:
+                        pet_model_region = _text(pet.get("modelRegionCode"))
+                        if pet_model_region and len(pet_model_region) >= 3:
+                            peril = pet_model_region[-2:]
+                            region = pet_model_region[:-2]
 
                 if framework == "ELT" and scheme_id is None:
                     problems.append(GroupingProblem(
@@ -762,7 +745,6 @@ class GroupingManager:
             key = GroupingPartitionKey(fact.peril_code, fact.region_code, fact.model_version)
             partition_facts.setdefault(key, []).append(fact)
 
-        group_ids = {member.analysis_id for member in members if member.is_group}
         partitions: List[GroupingPartition] = []
         for key in sorted(partition_facts, key=self._partition_sort_key):
             facts = partition_facts[key]
@@ -775,19 +757,6 @@ class GroupingManager:
                 fact.pet_id for fact in facts
                 if fact.framework == "PLT" and fact.pet_id is not None
             }))
-            compatible = len(pet_ids) <= 1
-            if len(pet_ids) > 1:
-                nested_ids = tuple(sorted(set(analysis_id_set) & group_ids))
-                code = (GroupingProblemCode.NESTED_GROUP_PET_AMBIGUOUS.value
-                        if nested_ids else GroupingProblemCode.DIFFERING_PET_IDS_UNSUPPORTED.value)
-                problems.append(GroupingProblem(
-                    code=code,
-                    message=(f"Partition {key.peril_code}/{key.region_code}/{key.model_version} "
-                             f"contains differing PET IDs {list(pet_ids)}."),
-                    analysis_ids=nested_ids or analysis_id_set,
-                    partition=key,
-                    pet_ids=pet_ids,
-                ))
             partitions.append(GroupingPartition(
                 key=key,
                 analysis_ids=analysis_id_set,
@@ -797,7 +766,6 @@ class GroupingManager:
                 ),
                 observed_pet_ids=pet_ids,
                 event_rate_selection_required=len(scheme_ids) > 1,
-                simulation_set_compatible=compatible,
             ))
 
         mappings: List[GroupingSimulationMapping] = []
@@ -1075,7 +1043,6 @@ class GroupingManager:
                 ),
                 "observed_pet_ids": partition.observed_pet_ids,
                 "event_rate_selection_required": partition.event_rate_selection_required,
-                "simulation_set_compatible": partition.simulation_set_compatible,
             })
         problem_payload = [{
             "code": problem.code,
