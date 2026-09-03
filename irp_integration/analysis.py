@@ -965,7 +965,11 @@ class AnalysisManager:
             (CATA, QUOT, SURP, WORK, CORP, STOP, NCAT), currency, attachmentBasis
             (L or R), attachmentLevel (PORT, ACCT, POL, LOC), premium,
             occurrenceLimit, attachmentPoint, riskLimit, retentionAmount,
-            percentagePlaced, effectiveDate and expirationDate.
+            percentagePlaced, effectiveDate, expirationDate, percentageRetention,
+            percentageRiShare, percentageCovered, priority,
+            numberOfReinstatements, reinstatementCharge, maolAmount, isValid,
+            userId1, userId2, aggregateDeductible, aggregateLimit, uri, lobs,
+            lossOccurrences, analysisId, and tagIds.
 
         Raises:
             IRPValidationError: If parameters are invalid

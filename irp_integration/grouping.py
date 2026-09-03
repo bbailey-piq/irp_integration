@@ -2,12 +2,16 @@
 Rules-based analysis grouping operations.
 
 Grouping uses an inspect-then-submit contract. Inspection reads analyses,
-regions, and reference mappings without creating a Platform job. Submission
-repeats the inspection, compares its deterministic fingerprint, validates the
-caller's explicit choices, and posts the resulting request immediately.
+regions, treaties, and reference mappings without creating a Platform job.
+Submission repeats the inspection, compares its deterministic fingerprint,
+validates the caller's explicit choices, and posts the resulting request
+immediately. Treaties with the same Treaty Number and different loss-affecting
+terms produce warnings but do not block submission.
 
-Treaty terms are intentionally not read or compared. Inconsistent terms that
-share a Treaty Number can therefore produce unexpected grouped results.
+Treaty comparison includes cedant, treaty type, currency, attachment and limit
+terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs,
+and loss occurrences. It excludes treaty IDs, display names, producers,
+premiums, user-defined fields, tags, and URIs.
 """
 
 from __future__ import annotations
@@ -54,6 +58,7 @@ class GroupingProblemCode(str, Enum):
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
     SIMULATION_SET_MAPPING_MISSING = "simulation_set_mapping_missing"
     SIMULATION_SET_MAPPING_AMBIGUOUS = "simulation_set_mapping_ambiguous"
+    INCONSISTENT_TREATY_TERMS = "inconsistent_treaty_terms"
 
 
 @dataclass(frozen=True)
@@ -141,6 +146,9 @@ class GroupingProblem:
     analysis_ids: Tuple[int, ...] = ()
     partition: Optional[GroupingPartitionKey] = None
     pet_ids: Tuple[int, ...] = ()
+    treaty_numbers: Tuple[str, ...] = ()
+    treaty_ids: Tuple[int, ...] = ()
+    differing_fields: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -272,7 +280,31 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 1
+    FINGERPRINT_VERSION = 2
+
+    LOSS_AFFECTING_TREATY_FIELDS = (
+        "cedant",
+        "treatyType",
+        "currency",
+        "attachmentBasis",
+        "attachmentLevel",
+        "occurrenceLimit",
+        "attachmentPoint",
+        "riskLimit",
+        "retentionAmount",
+        "percentagePlaced",
+        "effectiveDate",
+        "expirationDate",
+        "percentageRetention",
+        "percentageRiShare",
+        "percentageCovered",
+        "priority",
+        "numberOfReinstatements",
+        "reinstatementCharge",
+        "maolAmount",
+        "aggregateDeductible",
+        "aggregateLimit",
+    )
 
     def __init__(self, irp: "IRPClient") -> None:
         """Initialize the grouping manager.
@@ -446,6 +478,7 @@ class GroupingManager:
     def _inspect(self, analysis_ids: Tuple[int, ...]) -> GroupingInspection:
         problems: List[GroupingProblem] = []
         members: List[GroupingMember] = []
+        treaties: List[Dict[str, Any]] = []
         labels: Dict[int, Optional[str]] = {}
         version_cache: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]] = {}
         pet_cache: Dict[int, Tuple[Optional[Dict[str, Any]], Optional[Exception]]] = {}
@@ -498,6 +531,29 @@ class GroupingManager:
                     analysis_id, False, False, None, None, None, None, None, None, ()
                 ))
                 continue
+
+            raw_treaties = self._irp.analysis.search_analysis_treaties_paginated(analysis_id)
+            if not isinstance(raw_treaties, list):
+                raise IRPAPIError(
+                    f"Treaty search for analysis ID {analysis_id} returned a non-list response"
+                )
+            for treaty in raw_treaties:
+                if not isinstance(treaty, Mapping):
+                    raise IRPAPIError(
+                        f"Treaty search for analysis ID {analysis_id} returned a malformed treaty"
+                    )
+                treaty_number = _text(treaty.get("treatyNumber"))
+                if treaty_number is None:
+                    raise IRPAPIError(
+                        f"Treaty for analysis ID {analysis_id} has no Treaty Number"
+                    )
+                treaty_id = treaty.get("treatyId")
+                treaties.append({
+                    "analysis_id": analysis_id,
+                    "treaty_id": int(treaty_id) if _positive_int(treaty_id) else None,
+                    "treaty_number": treaty_number,
+                    "terms": self._loss_affecting_treaty_terms(treaty),
+                })
 
             raw_regions = self._irp.analysis.get_regions(analysis_id)
             if not isinstance(raw_regions, list) or not raw_regions:
@@ -838,6 +894,7 @@ class GroupingManager:
                 ))
 
         problems = self._deduplicate_problems(problems)
+        warnings = self._treaty_warnings(treaties)
         required = [
             "analysis_name",
             "currency",
@@ -859,6 +916,7 @@ class GroupingManager:
             simulate_to_plt=simulate_to_plt,
             partitions=tuple(partitions),
             mappings=tuple(mappings),
+            treaties=tuple(treaties),
             problems=tuple(problems),
         )
         return GroupingInspection(
@@ -872,7 +930,7 @@ class GroupingManager:
             partitions=tuple(partitions),
             simulation_mappings=tuple(mappings),
             required_caller_inputs=tuple(required),
-            warnings=(),
+            warnings=tuple(warnings),
             blocking_problems=tuple(problems),
         )
 
@@ -903,9 +961,108 @@ class GroupingManager:
                 "analysis_ids": problem.analysis_ids,
                 "partition": asdict(problem.partition) if problem.partition else None,
                 "pet_ids": problem.pet_ids,
+                "treaty_numbers": problem.treaty_numbers,
+                "treaty_ids": problem.treaty_ids,
+                "differing_fields": problem.differing_fields,
             }
             unique[json.dumps(payload, sort_keys=True)] = problem
         return [unique[key] for key in sorted(unique)]
+
+    @staticmethod
+    def _reference_value(value: Any, *keys: str) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        return _field(value, *keys)
+
+    @classmethod
+    def _loss_affecting_treaty_terms(cls, treaty: Mapping[str, Any]) -> Dict[str, Any]:
+        terms = {field: treaty.get(field) for field in cls.LOSS_AFFECTING_TREATY_FIELDS}
+        terms["cedant"] = cls._reference_value(
+            treaty.get("cedant"), "cedantId", "cedantName"
+        )
+        terms["currency"] = cls._reference_value(treaty.get("currency"), "code", "id")
+
+        lobs = []
+        for lob in treaty.get("lobs") or []:
+            lobs.append(cls._reference_value(lob, "lobId", "lobName"))
+        terms["lobs"] = sorted(
+            lobs, key=lambda value: json.dumps(value, sort_keys=True, default=str)
+        )
+
+        loss_occurrences = []
+        for occurrence in treaty.get("lossOccurrences") or []:
+            if not isinstance(occurrence, Mapping):
+                loss_occurrences.append(occurrence)
+                continue
+            loss_occurrences.append({
+                "regionPeril": cls._reference_value(
+                    occurrence.get("regionPeril"), "code", "id"
+                ),
+                "lossOccurrenceTime": occurrence.get("lossOccurrenceTime"),
+                "lossOccurrenceRadius": occurrence.get("lossOccurrenceRadius"),
+                "radiusUnit": cls._reference_value(
+                    occurrence.get("radiusUnit"), "code", "id"
+                ),
+                "multiLossOccurrence": cls._reference_value(
+                    occurrence.get("multiLossOccurrence"), "code", "id"
+                ),
+            })
+        terms["lossOccurrences"] = sorted(
+            loss_occurrences,
+            key=lambda value: json.dumps(value, sort_keys=True, default=str),
+        )
+        return terms
+
+    @classmethod
+    def _treaty_warnings(cls, treaties: List[Dict[str, Any]]) -> List[GroupingProblem]:
+        by_number: Dict[str, List[Dict[str, Any]]] = {}
+        for treaty in treaties:
+            by_number.setdefault(treaty["treaty_number"], []).append(treaty)
+
+        warnings = []
+        for treaty_number in sorted(by_number):
+            matches = by_number[treaty_number]
+            if len(matches) < 2:
+                continue
+            term_payloads = {
+                json.dumps(treaty["terms"], sort_keys=True, separators=(",", ":"))
+                for treaty in matches
+            }
+            if len(term_payloads) == 1:
+                continue
+            differing_fields = tuple(sorted(
+                field
+                for field in matches[0]["terms"]
+                if len({
+                    json.dumps(
+                        treaty["terms"].get(field),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    for treaty in matches
+                }) > 1
+            ))
+            affected_analysis_ids = tuple(sorted({
+                int(treaty["analysis_id"]) for treaty in matches
+            }))
+            affected_treaty_ids = tuple(sorted({
+                int(treaty["treaty_id"])
+                for treaty in matches
+                if treaty["treaty_id"] is not None
+            }))
+            warnings.append(GroupingProblem(
+                code=GroupingProblemCode.INCONSISTENT_TREATY_TERMS.value,
+                message=(
+                    f"Treaty Number {json.dumps(treaty_number)} has inconsistent "
+                    f"loss-affecting terms {list(differing_fields)} across analyses "
+                    f"{list(affected_analysis_ids)}."
+                ),
+                analysis_ids=affected_analysis_ids,
+                treaty_numbers=(treaty_number,),
+                treaty_ids=affected_treaty_ids,
+                differing_fields=differing_fields,
+            ))
+        return warnings
 
     def _fingerprint(
         self,
@@ -917,6 +1074,7 @@ class GroupingManager:
         simulate_to_plt: bool,
         partitions: Tuple[GroupingPartition, ...],
         mappings: Tuple[GroupingSimulationMapping, ...],
+        treaties: Tuple[Dict[str, Any], ...],
         problems: Tuple[GroupingProblem, ...],
     ) -> str:
         partition_payload = []
@@ -937,6 +1095,9 @@ class GroupingManager:
             "analysis_ids": problem.analysis_ids,
             "partition": asdict(problem.partition) if problem.partition else None,
             "pet_ids": problem.pet_ids,
+            "treaty_numbers": problem.treaty_numbers,
+            "treaty_ids": problem.treaty_ids,
+            "differing_fields": problem.differing_fields,
         } for problem in problems]
         payload = {
             "version": self.FINGERPRINT_VERSION,
@@ -947,6 +1108,14 @@ class GroupingManager:
             "simulate_to_plt": simulate_to_plt,
             "partitions": partition_payload,
             "simulation_mappings": [asdict(mapping) for mapping in mappings],
+            "treaties": sorted(
+                treaties,
+                key=lambda treaty: (
+                    treaty["analysis_id"],
+                    treaty["treaty_number"],
+                    treaty["treaty_id"] or 0,
+                ),
+            ),
             "problems": problem_payload,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))

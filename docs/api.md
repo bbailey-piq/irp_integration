@@ -2217,7 +2217,11 @@ Fetches all pages of results, paging via ``paginate_search``.
 > (CATA, QUOT, SURP, WORK, CORP, STOP, NCAT), currency, attachmentBasis
 > (L or R), attachmentLevel (PORT, ACCT, POL, LOC), premium,
 > occurrenceLimit, attachmentPoint, riskLimit, retentionAmount,
-> percentagePlaced, effectiveDate and expirationDate.
+> percentagePlaced, effectiveDate, expirationDate, percentageRetention,
+> percentageRiShare, percentageCovered, priority,
+> numberOfReinstatements, reinstatementCharge, maolAmount, isValid,
+> userId1, userId2, aggregateDeductible, aggregateLimit, uri, lobs,
+> lossOccurrences, analysisId, and tagIds.
 
 **Raises:**
  - **IRPValidationError:**  If parameters are invalid
@@ -2258,9 +2262,9 @@ Submit an analysis results export job.
 
 Rules-based analysis grouping operations.
 
-Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately.
+Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, treaties, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately. Treaties with the same Treaty Number and different loss-affecting terms produce warnings but do not block submission.
 
-Treaty terms are intentionally not read or compared. Inconsistent terms that share a Treaty Number can therefore produce unexpected grouped results.
+Treaty comparison includes cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, and loss occurrences. It excludes treaty IDs, display names, producers, premiums, user-defined fields, tags, and URIs.
 
 ### `class EventRateSchemeOption`
 
@@ -2467,7 +2471,10 @@ def __init__(
     message: str,
     analysis_ids: Tuple[int, ...] = (),
     partition: Optional[irp_integration.grouping.GroupingPartitionKey] = None,
-    pet_ids: Tuple[int, ...] = ()
+    pet_ids: Tuple[int, ...] = (),
+    treaty_numbers: Tuple[str, ...] = (),
+    treaty_ids: Tuple[int, ...] = (),
+    differing_fields: Tuple[str, ...] = ()
 )
 ```
 

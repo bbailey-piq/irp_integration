@@ -94,9 +94,11 @@ submission = client.grouping.submit(
 ```
 
 The package does not choose event-rate schemes, simulation sets, simulation
-counts, currency, detailed-loss settings, windows, or a grouping set. It also
-does not retrieve or compare treaty terms. Inconsistent terms that share a
-Treaty Number can produce unexpected grouped results.
+counts, currency, detailed-loss settings, windows, or a grouping set. Inspection
+compares loss-affecting terms for treaties that share a Treaty Number. Any
+inconsistency is returned in `inspection.warnings`; it does not block grouping.
+Treaty IDs, display names, producers, premiums, user-defined fields, tags, and
+URIs are not part of the comparison.
 
 ## Configuration
 

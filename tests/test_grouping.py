@@ -66,11 +66,17 @@ def region(
 
 
 class FakeAnalysisManager:
-    """Return mutable analysis and region fixtures by exact ID."""
+    """Return mutable analysis, region, and treaty fixtures by exact ID."""
 
-    def __init__(self, details: Dict[int, Dict[str, Any]], regions: Dict[int, List[Dict[str, Any]]]):
+    def __init__(
+        self,
+        details: Dict[int, Dict[str, Any]],
+        regions: Dict[int, List[Dict[str, Any]]],
+        treaties: Optional[Dict[int, List[Dict[str, Any]]]] = None,
+    ):
         self.details = details
         self.regions = regions
+        self.treaties = treaties or {}
 
     def get_analysis_by_id(self, analysis_id: int) -> Dict[str, Any]:
         """Return an exact-ID detail response."""
@@ -79,6 +85,12 @@ class FakeAnalysisManager:
     def get_regions(self, analysis_id: int) -> List[Dict[str, Any]]:
         """Return exact-ID region rows."""
         return self.regions.get(analysis_id, [])
+
+    def search_analysis_treaties_paginated(
+        self, analysis_id: int
+    ) -> List[Dict[str, Any]]:
+        """Return every treaty associated with one analysis ID."""
+        return self.treaties.get(analysis_id, [])
 
 
 class FakeReferenceDataManager:
@@ -142,6 +154,7 @@ def make_manager(
     details: Dict[int, Dict[str, Any]],
     regions: Dict[int, List[Dict[str, Any]]],
     *,
+    treaties: Optional[Dict[int, List[Dict[str, Any]]]] = None,
     post: bool = False,
 ) -> tuple[GroupingManager, FakeClient, FakeReferenceDataManager]:
     """Build a grouping manager over offline test doubles."""
@@ -156,7 +169,7 @@ def make_manager(
     reference_data = FakeReferenceDataManager()
     irp = SimpleNamespace(
         client=client,
-        analysis=FakeAnalysisManager(details, regions),
+        analysis=FakeAnalysisManager(details, regions, treaties),
         reference_data=reference_data,
     )
     return GroupingManager(irp), client, reference_data
@@ -188,6 +201,61 @@ def pure_elt_fixtures(conflicting: bool = False):
     return details, regions
 
 
+def treaty(
+    analysis_id: int,
+    treaty_id: int,
+    *,
+    treaty_number: str = "CATA-1",
+    occurrence_limit: float = 1_000_000,
+) -> Dict[str, Any]:
+    """Build one Platform analysis-treaty fixture."""
+    return {
+        "analysisId": analysis_id,
+        "treatyId": treaty_id,
+        "treatyNumber": treaty_number,
+        "treatyName": f"Display name {treaty_id}",
+        "cedant": {"cedantId": "CED-1", "cedantName": "Example Cedant"},
+        "producer": {"producerId": str(treaty_id), "producerName": "Producer"},
+        "treatyType": "CATA",
+        "currency": {"id": 1, "code": "USD", "name": "US Dollar"},
+        "attachmentBasis": "L",
+        "attachmentLevel": "PORT",
+        "premium": treaty_id * 1000,
+        "occurrenceLimit": occurrence_limit,
+        "attachmentPoint": 100_000,
+        "riskLimit": None,
+        "retentionAmount": None,
+        "percentagePlaced": 100,
+        "effectiveDate": "2026-01-01T00:00:00.000Z",
+        "expirationDate": "2026-12-31T00:00:00.000Z",
+        "percentageRetention": 100,
+        "percentageRiShare": 100,
+        "percentageCovered": 100,
+        "priority": 1,
+        "numberOfReinstatements": 1,
+        "reinstatementCharge": 0,
+        "maolAmount": None,
+        "isValid": True,
+        "userId1": f"user-{treaty_id}",
+        "userId2": None,
+        "aggregateDeductible": 0,
+        "aggregateLimit": 0,
+        "uri": f"/analyses/{analysis_id}/treaties/{treaty_id}",
+        "lobs": [{"lobId": 9, "lobName": "FACTORY", "uri": f"/lobs/{treaty_id}"}],
+        "lossOccurrences": [{
+            "id": treaty_id,
+            "treatyId": treaty_id,
+            "uri": f"/loss-occurrences/{treaty_id}",
+            "regionPeril": {"id": 4, "code": "NAWF", "name": "Wildfire"},
+            "lossOccurrenceTime": 168,
+            "lossOccurrenceRadius": 0,
+            "radiusUnit": {"id": 1, "code": "MI", "name": "Miles"},
+            "multiLossOccurrence": {"id": 2, "code": "NO", "name": "No"},
+        }],
+        "tagIds": [treaty_id],
+    }
+
+
 def test_pure_elt_inspection_reports_one_observed_scheme():
     """Classify pure ELT without inventing an event-rate choice."""
     manager, client, _ = make_manager(*pure_elt_fixtures())
@@ -199,6 +267,135 @@ def test_pure_elt_inspection_reports_one_observed_scheme():
     assert result.blocking_problems == ()
     assert result.partitions[0].event_rate_selection_required is False
     assert [option.event_rate_scheme_id for option in result.partitions[0].event_rate_scheme_options] == [101]
+    assert client.calls == []
+
+
+def test_matching_treaty_terms_ignore_non_loss_properties():
+    """Do not warn for IDs, names, premiums, producers, tags, or URIs."""
+    details, regions = pure_elt_fixtures()
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={1: [treaty(1, 11)], 2: [treaty(2, 22)]},
+    )
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.warnings == ()
+    assert inspection.blocking_problems == ()
+
+
+def test_inconsistent_treaty_terms_return_structured_warning():
+    """Name the Treaty Number, analyses, treaties, and differing terms."""
+    details, regions = pure_elt_fixtures()
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={
+            1: [treaty(1, 11)],
+            2: [treaty(2, 22, occurrence_limit=2_000_000)],
+        },
+    )
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.blocking_problems == ()
+    assert len(inspection.warnings) == 1
+    warning = inspection.warnings[0]
+    assert warning.code == "inconsistent_treaty_terms"
+    assert warning.analysis_ids == (1, 2)
+    assert warning.treaty_numbers == ("CATA-1",)
+    assert warning.treaty_ids == (11, 22)
+    assert warning.differing_fields == ("occurrenceLimit",)
+
+
+def test_different_treaty_numbers_are_not_compared():
+    """Compare terms only when Treaty Number identifies the same treaty."""
+    details, regions = pure_elt_fixtures()
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={
+            1: [treaty(1, 11, treaty_number="CATA-1")],
+            2: [
+                treaty(
+                    2,
+                    22,
+                    treaty_number="CATA-2",
+                    occurrence_limit=2_000_000,
+                )
+            ],
+        },
+    )
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.warnings == ()
+
+
+def test_loss_occurrence_and_lob_differences_are_treaty_warnings():
+    """Compare nested loss-occurrence terms and LOB assignments."""
+    details, regions = pure_elt_fixtures()
+    first = treaty(1, 11)
+    second = treaty(2, 22)
+    second["lobs"] = [{"lobId": 10, "lobName": "OFFICE"}]
+    second["lossOccurrences"][0]["lossOccurrenceTime"] = 72
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={1: [first], 2: [second]},
+    )
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.warnings[0].differing_fields == ("lobs", "lossOccurrences")
+
+
+def test_inconsistent_treaty_warning_does_not_block_submission():
+    """Submit when treaty terms remain inconsistent after reinspection."""
+    details, regions = pure_elt_fixtures()
+    manager, client, _ = make_manager(
+        details,
+        regions,
+        treaties={
+            1: [treaty(1, 11)],
+            2: [treaty(2, 22, occurrence_limit=2_000_000)],
+        },
+        post=True,
+    )
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    submission = manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
+
+    assert submission.job_id == 7001
+    assert client.calls[-1]["method"] == "POST"
+
+
+def test_treaty_term_change_after_inspection_changes_fingerprint():
+    """Require another review when treaty terms change before submission."""
+    details, regions = pure_elt_fixtures()
+    manager, client, _ = make_manager(
+        details,
+        regions,
+        treaties={1: [treaty(1, 11)], 2: [treaty(2, 22)]},
+    )
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    manager._irp.analysis.treaties[2][0]["occurrenceLimit"] = 2_000_000
+
+    with pytest.raises(IRPGroupingValidationError) as exc_info:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint=inspection.fingerprint,
+        )
+
+    assert exc_info.value.problems[0].code == "inspection_changed"
     assert client.calls == []
 
 
