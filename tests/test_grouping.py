@@ -95,9 +95,14 @@ class FakeAnalysisManager:
 
 
 class FakeReferenceDataManager:
-    """Resolve fixture model versions, PETs, and exact simulation mappings."""
+    """Resolve fixture model versions, PETs, event-rate schemes, and exact
+    simulation mappings."""
 
     def __init__(self) -> None:
+        self.event_rate_schemes = [
+            {"eventRateSchemeId": 101, "eventRateSchemeName": "Historical"},
+            {"eventRateSchemeId": 102, "eventRateSchemeName": "Stochastic"},
+        ]
         self.pet_metadata = [
             {
                 "id": 50,
@@ -127,6 +132,10 @@ class FakeReferenceDataManager:
         self.simulation_error: Optional[IRPAPIError] = None
         self.simulation_calls: List[Dict[str, Any]] = []
         self.model_version_error: Optional[IRPAPIError] = None
+
+    def get_event_rate_schemes(self) -> Dict[str, Any]:
+        """Return the fixture scheme list in the Platform's envelope."""
+        return {"items": list(self.event_rate_schemes)}
 
     def get_model_version_by_engine_region_peril(
         self, engine_version: str, region_code: str, peril_code: str
@@ -517,9 +526,8 @@ def test_conflicting_pure_elt_requires_one_of_the_observed_schemes():
 
 
 def test_display_name_region_rows_resolve_to_the_detail_codes():
-    """Platform region rows carry ``peril`` as a display name and the detail
-    lists the scheme name under ``eventRateSchemeNames``; both members must
-    land in one coded partition with labelled choices and no problems."""
+    """Platform region rows carry ``peril`` as a display name; both members
+    must land in one coded partition with labelled choices and no problems."""
     details, regions = pure_elt_fixtures(conflicting=True)
     for detail in details.values():
         detail.update({
@@ -544,7 +552,38 @@ def test_display_name_region_rows_resolve_to_the_detail_codes():
     assert [
         (option.event_rate_scheme_id, option.label)
         for option in result.partitions[0].event_rate_scheme_options
-    ] == [(101, "Scheme 101"), (102, "Scheme 102")]
+    ] == [(101, "Historical"), (102, "Stochastic")]
+
+
+def test_each_offered_scheme_is_named_from_reference_data():
+    """A group's detail names only one of the schemes its members ran under, so
+    naming every offered scheme from the detail showed one name on both. Each
+    ID takes its own name from the reference list."""
+    details = {
+        1: analysis(1, is_group=True, scheme_id=None, engine_type="Group"),
+        2: analysis(2, scheme_id=101, scheme_name="Historical"),
+    }
+    details[1]["additionalProperties"] = [{
+        "key": "eventRateSchemes",
+        "properties": [{"id": 0, "name": "", "value": {
+            "regionCode": "NA", "perilCode": "WS", "framework": "ELT",
+            "eventRateSchemeId": 101,
+            "eventRateSchemeName": "Historical"}}],
+    }]
+    regions = {
+        1: [region(1, scheme_id=101), region(1, scheme_id=102, sub_region="TX")],
+        2: [region(2, scheme_id=101)],
+    }
+    manager, _, _ = make_manager(details, regions)
+
+    result = manager.inspect(analysis_ids=[1, 2])
+
+    partition = result.partitions[0]
+    assert partition.event_rate_selection_required is True
+    assert [
+        (option.event_rate_scheme_id, option.label)
+        for option in partition.event_rate_scheme_options
+    ] == [(101, "Historical"), (102, "Stochastic")]
 
 
 def test_reversing_members_keeps_partition_and_choice_order():

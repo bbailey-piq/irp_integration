@@ -494,6 +494,7 @@ class GroupingManager:
         members: List[GroupingMember] = []
         treaties: List[Dict[str, Any]] = []
         labels: Dict[int, Optional[str]] = {}
+        scheme_names: Optional[Dict[int, Optional[str]]] = None
         version_cache: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]] = {}
         pet_cache: Dict[
             Tuple[int, str, Optional[str]],
@@ -529,6 +530,23 @@ class GroupingManager:
                 except IRPAPIError as exc:
                     pet_cache[key] = (None, exc)
             return pet_cache[key]
+
+        def scheme_name(scheme_id: int) -> Optional[str]:
+            """The Platform's own name for an event-rate scheme ID. A member's
+            region rows carry the ID alone, and its detail names at most one
+            scheme, so the reference list is the only source that names every
+            offered ID."""
+            nonlocal scheme_names
+            if scheme_names is None:
+                payload = self._irp.reference_data.get_event_rate_schemes()
+                rows = payload.get("items") if isinstance(payload, Mapping) else payload
+                scheme_names = {
+                    int(row["eventRateSchemeId"]): _text(row.get("eventRateSchemeName"))
+                    for row in rows or ()
+                    if isinstance(row, Mapping)
+                    and _positive_int(row.get("eventRateSchemeId"))
+                }
+            return scheme_names.get(scheme_id)
 
         for analysis_id in analysis_ids:
             try:
@@ -637,8 +655,6 @@ class GroupingManager:
                 apply_contract = bool(_field(raw_region, "applyContractFlag"))
                 scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
                 scheme_id = int(scheme) if _positive_int(scheme) else analysis_scheme
-                if scheme_id is not None:
-                    labels.setdefault(scheme_id, analysis_label)
                 pet_value = _field(raw_region, "petId", "simulationSetId")
                 pet_id = int(pet_value) if _positive_int(pet_value) else None
                 period_value = _field(raw_region, "periods", "simulationPeriods")
@@ -782,7 +798,9 @@ class GroupingManager:
                 key=key,
                 analysis_ids=analysis_id_set,
                 event_rate_scheme_options=tuple(
-                    EventRateSchemeOption(scheme_id, labels.get(scheme_id))
+                    EventRateSchemeOption(
+                        scheme_id, scheme_name(scheme_id) or labels.get(scheme_id)
+                    )
                     for scheme_id in scheme_ids
                 ),
                 observed_pet_ids=pet_ids,
