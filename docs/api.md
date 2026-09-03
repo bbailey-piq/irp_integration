@@ -2443,8 +2443,7 @@ def __init__(
     analysis_ids: Tuple[int, ...],
     event_rate_scheme_options: Tuple[irp_integration.grouping.EventRateSchemeOption, ...],
     observed_pet_ids: Tuple[int, ...],
-    event_rate_selection_required: bool,
-    simulation_set_compatible: bool
+    event_rate_selection_required: bool
 )
 ```
 
@@ -3937,7 +3936,8 @@ def get_all_pet_metadata(self) -> List[Dict[str, Any]]
 
 Get all PET (Probabilistic Event Table) metadata.
 
-PET metadata maps PET IDs to simulation set IDs for PLT/HD-based analyses.
+PET metadata describes the available PLT/HD simulation sets. A PET ID
+can occur in more than one model version or model region.
 
 **Returns:**
 > List of PET metadata dicts
@@ -3953,8 +3953,9 @@ def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]
 
 Get PET metadata by PET ID.
 
-For PLT/HD analyses, the simulationSetId in grouping requests is the
-PET ID itself (the 'id' field from PET metadata).
+The lookup preserves its strict historical behavior and raises when a
+PET ID occurs in more than one metadata row. Use
+``get_pet_metadata_exact`` when model qualifiers are available.
 
 **Arguments:**
  - **pet_id:**  PET ID from analysis regions
@@ -3965,6 +3966,32 @@ PET ID itself (the 'id' field from PET metadata).
 **Raises:**
  - **IRPValidationError:**  If pet_id is invalid
  - **IRPAPIError:**  If request fails or PET not found
+
+#### `get_pet_metadata_exact`
+
+```python
+def get_pet_metadata_exact(
+    self,
+    *,
+    pet_id: int,
+    model_version: str,
+    model_region_code: Optional[str] = None
+) -> Dict[str, Any]
+```
+
+Return one qualified PET metadata row.
+
+**Arguments:**
+ - **pet_id:**  Positive PET ID from an analysis region
+ - **model_version:**  Exact model version code
+ - **model_region_code:**  Optional exact model region code
+
+**Returns:**
+> The sole PET metadata row matching every supplied qualifier
+
+**Raises:**
+ - **IRPValidationError:**  If an argument is malformed
+ - **IRPAPIError:**  If zero or multiple rows match
 
 #### `get_all_software_model_version_map`
 
