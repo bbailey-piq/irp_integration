@@ -94,7 +94,15 @@ class SimulationSetOption:
 
 @dataclass(frozen=True)
 class GroupingRegionFact:
-    """Normalized Platform region fact used by grouping inspection."""
+    """Normalized Platform region fact used by grouping inspection.
+
+    ``pet_name`` is the ``petName`` of the ``PETMetadata`` row for ``pet_id``,
+    the name Risk Modeler shows for a PLT region's simulation set. It is
+    ``None`` for an ELT region and when the ``PETMetadata`` lookup returned no
+    single row. ``PETMetadata`` and the ``SimulationSet`` reference table are
+    separate tables with separate ID sequences: a ``pet_id`` does not name a
+    ``SimulationSetOption``.
+    """
 
     analysis_id: int
     framework: str
@@ -106,6 +114,7 @@ class GroupingRegionFact:
     model_region_code: str
     event_rate_scheme_id: Optional[int]
     pet_id: Optional[int]
+    pet_name: Optional[str]
     periods: Optional[int]
     apply_contract_flag: bool
 
@@ -323,7 +332,7 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 4
+    FINGERPRINT_VERSION = 5
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",
@@ -730,6 +739,7 @@ class GroupingManager:
                 scheme_id = int(scheme) if _positive_int(scheme) else analysis_scheme
                 pet_value = _field(raw_region, "petId", "simulationSetId")
                 pet_id = int(pet_value) if _positive_int(pet_value) else None
+                pet_name: Optional[str] = None
                 period_value = _field(raw_region, "periods", "simulationPeriods")
                 periods = int(period_value) if _positive_int(period_value) else None
 
@@ -794,6 +804,7 @@ class GroupingManager:
                         broad_model_region,
                     )
                     if pet is not None:
+                        pet_name = _text(pet.get("petName"))
                         pet_model_region = _text(pet.get("modelRegionCode"))
                         if pet_model_region and len(pet_model_region) >= 3:
                             peril = pet_model_region[-2:]
@@ -819,6 +830,7 @@ class GroupingManager:
                     model_region_code=model_region,
                     event_rate_scheme_id=scheme_id if framework == "ELT" else None,
                     pet_id=pet_id if framework == "PLT" else None,
+                    pet_name=pet_name,
                     periods=periods if framework == "PLT" else None,
                     apply_contract_flag=apply_contract,
                 ))

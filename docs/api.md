@@ -2496,6 +2496,8 @@ Stable codes returned for rule-based grouping problems.
 
 Normalized Platform region fact used by grouping inspection.
 
+``pet_name`` is the ``petName`` of the ``PETMetadata`` row for ``pet_id``, the name Risk Modeler shows for a PLT region's simulation set. It is ``None`` for an ELT region and when the ``PETMetadata`` lookup returned no single row. ``PETMetadata`` and the ``SimulationSet`` reference table are separate tables with separate ID sequences: a ``pet_id`` does not name a ``SimulationSetOption``.
+
 #### `__init__`
 
 ```python
@@ -2511,6 +2513,7 @@ def __init__(
     model_region_code: str,
     event_rate_scheme_id: Optional[int],
     pet_id: Optional[int],
+    pet_name: Optional[str],
     periods: Optional[int],
     apply_contract_flag: bool
 )

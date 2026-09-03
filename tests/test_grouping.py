@@ -18,6 +18,13 @@ from irp_integration.grouping import (
     SimulationSetSelection,
 )
 
+# The sandbox PETMetadata petName for JPWS PET 15 and PET 16, which the JP
+# fixtures group and which occur under both model version 2.0 and 2.1.
+TYPHOON_PET_NAME = "RMS V2.0 Stochastic Event Rates - Typhoon Events Only"
+NON_TYPHOON_PET_NAME = (
+    "RMS V2.0 Stochastic Event Rates - Non-Typhoon Flood Events Only"
+)
+
 
 def analysis(
     analysis_id: int,
@@ -110,12 +117,14 @@ class FakeReferenceDataManager:
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
+                "petName": "RMS V2.0 Stochastic Rates - CatLoss US (Default)",
             },
             {
                 "id": 51,
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
+                "petName": "RMS V2.0 Stochastic Rates - CatLoss US Utility",
             },
             {
                 "id": 60,
@@ -123,10 +132,14 @@ class FakeReferenceDataManager:
                 "modelVersionCode": "23.0",
                 "numberOfPeriods": 50000,
             },
-            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.0"},
-            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.0"},
-            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.1"},
-            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1"},
+            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
+             "petName": TYPHOON_PET_NAME},
+            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
+             "petName": NON_TYPHOON_PET_NAME},
+            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
+             "petName": TYPHOON_PET_NAME},
+            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
+             "petName": NON_TYPHOON_PET_NAME},
         ]
         self.pet_metadata_error: Optional[IRPAPIError] = None
         self.pet_metadata_calls: List[Dict[str, Any]] = []
@@ -817,6 +830,29 @@ def test_unavailable_exact_pet_metadata_does_not_warn_or_block(pet_error):
 
     assert inspection.blocking_problems == ()
     assert inspection.warnings == ()
+    assert [fact.pet_name for member in inspection.members
+            for fact in member.regions] == [None, None]
+
+
+def test_plt_region_facts_name_the_pet():
+    """Carry the PETMetadata petName for the version the PET resolved against."""
+    manager, _, _ = make_manager(*jp_plt_fixtures())
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert [(fact.pet_id, fact.pet_name) for member in inspection.members
+            for fact in member.regions] == [
+        (15, TYPHOON_PET_NAME), (16, NON_TYPHOON_PET_NAME)]
+
+
+def test_elt_region_facts_have_no_pet_name():
+    """Leave pet_name unset for an ELT region, which carries no PET ID."""
+    manager, _, _ = make_manager(*pure_elt_fixtures())
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert {fact.pet_name for member in inspection.members
+            for fact in member.regions} == {None}
 
 
 def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
