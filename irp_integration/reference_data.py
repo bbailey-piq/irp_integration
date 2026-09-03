@@ -723,7 +723,8 @@ class ReferenceDataManager:
         """
         Get all PET (Probabilistic Event Table) metadata.
 
-        PET metadata maps PET IDs to simulation set IDs for PLT/HD-based analyses.
+        PET metadata describes the available PLT/HD simulation sets. A PET ID
+        can occur in more than one model version or model region.
 
         Returns:
             List of PET metadata dicts
@@ -748,8 +749,9 @@ class ReferenceDataManager:
         """
         Get PET metadata by PET ID.
 
-        For PLT/HD analyses, the simulationSetId in grouping requests is the
-        PET ID itself (the 'id' field from PET metadata).
+        The lookup preserves its strict historical behavior and raises when a
+        PET ID occurs in more than one metadata row. Use
+        ``get_pet_metadata_exact`` when model qualifiers are available.
 
         Args:
             pet_id: PET ID from analysis regions
@@ -771,6 +773,53 @@ class ReferenceDataManager:
         if not matches:
             raise IRPAPIError(f"No PET metadata found for PET ID {pet_id}")
         raise IRPAPIError(f"Multiple PET metadata rows found for PET ID {pet_id}")
+
+    def get_pet_metadata_exact(
+        self,
+        *,
+        pet_id: int,
+        model_version: str,
+        model_region_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return one qualified PET metadata row.
+
+        Args:
+            pet_id: Positive PET ID from an analysis region
+            model_version: Exact model version code
+            model_region_code: Optional exact model region code
+
+        Returns:
+            The sole PET metadata row matching every supplied qualifier
+
+        Raises:
+            IRPValidationError: If an argument is malformed
+            IRPAPIError: If zero or multiple rows match
+        """
+        validate_positive_int(pet_id, "pet_id")
+        validate_non_empty_string(model_version, "model_version")
+        if model_region_code is not None:
+            validate_non_empty_string(model_region_code, "model_region_code")
+
+        matches = []
+        for pet in self.get_all_pet_metadata():
+            row_version = pet.get('modelVersionCode', pet.get('modelVersion'))
+            if pet.get('id') != pet_id or str(row_version) != model_version:
+                continue
+            if (
+                model_region_code is not None
+                and pet.get('modelRegionCode') != model_region_code
+            ):
+                continue
+            matches.append(pet)
+
+        qualifiers = f"PET ID {pet_id} and model version '{model_version}'"
+        if model_region_code is not None:
+            qualifiers += f" and model region '{model_region_code}'"
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise IRPAPIError(f"No PET metadata found for {qualifiers}")
+        raise IRPAPIError(f"Multiple PET metadata rows found for {qualifiers}")
 
     def get_all_software_model_version_map(self) -> List[Dict[str, Any]]:
         """
