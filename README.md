@@ -62,17 +62,31 @@ from irp_integration.grouping import (
     EventRateSelection,
     GroupingCurrency,
     GroupingSettings,
+    SimulationSetSelection,
 )
 
 inspection = client.grouping.inspect(analysis_ids=[12345, 12346])
 
+# Populate both mappings from the caller's selections.
+selected_event_rate_scheme_ids = {...}
+selected_simulation_set_ids = {...}
+
 selections = tuple(
     EventRateSelection(
         partition=partition.key,
-        event_rate_scheme_id=partition.event_rate_scheme_options[0].event_rate_scheme_id,
+        event_rate_scheme_id=selected_event_rate_scheme_ids[partition.key],
     )
     for partition in inspection.partitions
     if partition.event_rate_selection_required
+)
+
+simulation_selections = tuple(
+    SimulationSetSelection(
+        partition=partition.key,
+        simulation_set_id=selected_simulation_set_ids[partition.key],
+    )
+    for partition in inspection.partitions
+    if partition.simulation_set_selection_required
 )
 
 submission = client.grouping.submit(
@@ -90,11 +104,18 @@ submission = client.grouping.submit(
     ),
     event_rate_selections=selections,
     expected_inspection_fingerprint=inspection.fingerprint,
+    simulation_set_selections=simulation_selections,
 )
 ```
 
 The package does not choose event-rate schemes, simulation sets, simulation
 counts, currency, detailed-loss settings, windows, or a grouping set. Inspection
+returns simulation-set choices for every ELT peril/region/model-version
+partition that must be converted to PLT. The simulation-set choice is independent
+of the event-rate-scheme choice. A PLT member keeps its own `petId` and does not
+require a simulation-set choice.
+
+Inspection
 compares loss-affecting terms for treaties that share a Treaty Number. Any
 inconsistency is returned in `inspection.warnings`; it does not block grouping.
 Treaty IDs, display names, producers, premiums, user-defined fields, tags, and

@@ -15,6 +15,7 @@ from irp_integration.grouping import (
     GroupingPartitionKey,
     GroupingSettings,
     GroupingTreaty,
+    SimulationSetSelection,
 )
 
 
@@ -129,8 +130,19 @@ class FakeReferenceDataManager:
         ]
         self.pet_metadata_error: Optional[IRPAPIError] = None
         self.pet_metadata_calls: List[Dict[str, Any]] = []
-        self.simulation_error: Optional[IRPAPIError] = None
-        self.simulation_calls: List[Dict[str, Any]] = []
+        self.simulation_sets = [
+            {
+                "id": 1001,
+                "eventRateSchemeId": 101,
+                "name": "North America Windstorm Stochastic",
+                "perilCode": "WS",
+                "modelRegionCode": "NAWS",
+                "modelVersionCode": "11.0",
+                "defaultPeriods": 100000,
+                "peqtSource": "SYSTEM",
+            }
+        ]
+        self.simulation_calls = 0
         self.model_version_error: Optional[IRPAPIError] = None
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
@@ -143,7 +155,9 @@ class FakeReferenceDataManager:
         """Return the exact fixture model version."""
         if self.model_version_error:
             raise self.model_version_error
-        if engine_version == "RL23":
+        if engine_version in {"RL23", "RL25"} and region_code == "NA":
+            if peril_code == "EQ":
+                return "17.0"
             return "11.0"
         if region_code == "US" and peril_code == "EQ":
             return "23.0"
@@ -178,19 +192,10 @@ class FakeReferenceDataManager:
             raise IRPAPIError("Multiple PET metadata rows found")
         return matches[0]
 
-    def get_simulation_set_exact(self, **kwargs: Any) -> Dict[str, Any]:
-        """Return one exact simulation mapping for each offered scheme."""
-        self.simulation_calls.append(kwargs)
-        if self.simulation_error:
-            raise self.simulation_error
-        scheme_id = kwargs["event_rate_scheme_id"]
-        return {
-            "id": 900 + scheme_id,
-            "eventRateSchemeId": scheme_id,
-            "modelRegionCode": kwargs["model_region_code"],
-            "modelVersionCode": kwargs["model_version"],
-            "defaultPeriods": 100000,
-        }
+    def get_all_simulation_sets(self) -> List[Dict[str, Any]]:
+        """Return every active simulation-set fixture."""
+        self.simulation_calls += 1
+        return list(self.simulation_sets)
 
 
 def make_manager(
@@ -824,12 +829,149 @@ def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
         settings=settings(),
         event_rate_selections=[],
         expected_inspection_fingerprint=inspection.fingerprint,
+        simulation_set_selections=[
+            SimulationSetSelection(
+                GroupingPartitionKey("WS", "NA", "11.0"), 1001
+            )
+        ],
     )
 
     assert inspection.output_loss_table == "PLT"
     rps = result.request_body["settings"]["regionPerilSimulationSet"]
     assert {entry["simulationSetId"] for entry in rps} == {50, 1001}
     assert {entry["eventRateSchemeId"] for entry in rps} == {0, 101}
+    assert client.calls[-1]["json"] == result.request_body
+
+
+def test_risk_modeler_simulation_choices_are_independent_of_event_rate_scheme():
+    """Reproduce the mixed HD, DLM, and nested-group request captured in Risk Modeler."""
+    details = {
+        1: analysis(1, framework="PLT", engine_type="HD", scheme_id=None),
+        2: analysis(2, scheme_id=163),
+        3: analysis(3, scheme_id=None, is_group=True),
+    }
+    details[1].update({
+        "engineVersion": "HDv2.1",
+        "perilCode": "WS",
+        "regionCode": "JP",
+    })
+    details[2].update({
+        "engineVersion": "RL25",
+        "perilCode": "EQ",
+    })
+    regions = {
+        1: [region(1, framework="PLT", scheme_id=None, pet_id=15, periods=50000)],
+        2: [region(2, scheme_id=163, sub_region="CA")],
+        3: [
+            region(3, scheme_id=738, sub_region="FL"),
+            region(3, scheme_id=739, sub_region="FL"),
+            region(3, scheme_id=738, sub_region="NA"),
+        ],
+    }
+    regions[1][0].update({
+        "engineVersion": "HDv2.1",
+        "peril": "WS",
+        "region": "JP",
+        "subRegion": "JP",
+    })
+    regions[2][0].update({"engineVersion": "RL25", "peril": "EQ"})
+    regions[3][2]["engineVersion"] = "RL25"
+    manager, client, reference_data = make_manager(details, regions, post=True)
+    reference_data.simulation_sets = [
+        {
+            "id": 87,
+            "eventRateSchemeId": 163,
+            "name": "North America Earthquake Stochastic",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+            "modelVersionCode": "17.0",
+            "defaultPeriods": 100000,
+            "peqtSource": "SYSTEM",
+        },
+        {
+            "id": 88,
+            "eventRateSchemeId": 164,
+            "name": "North America Earthquake Long Term",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+            "modelVersionCode": "17.0",
+            "defaultPeriods": 100000,
+            "peqtSource": "SYSTEM",
+        },
+        {
+            "id": 147,
+            "eventRateSchemeId": 739,
+            "name": "North Atlantic Hurricane Stochastic v2",
+            "perilCode": "WS",
+            "modelRegionCode": "NAWS",
+            "modelVersionCode": "11.0",
+            "defaultPeriods": 100000,
+            "peqtSource": "SYSTEM",
+        },
+        {
+            "id": 1002000,
+            "eventRateSchemeId": 163,
+            "name": "Wrong-peril imported row",
+            "perilCode": "WS",
+            "modelRegionCode": "NAEQ",
+            "modelVersionCode": "17.0",
+            "defaultPeriods": 100000,
+            "peqtSource": "IMPORTED",
+        },
+        {
+            "id": 1002001,
+            "eventRateSchemeId": 163,
+            "name": "Imported earthquake row",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+            "modelVersionCode": "17.0",
+            "defaultPeriods": 100000,
+            "peqtSource": "IMPORTED",
+        },
+    ]
+
+    inspection = manager.inspect(analysis_ids=[1, 2, 3])
+    partitions = {partition.key: partition for partition in inspection.partitions}
+    eq_key = GroupingPartitionKey("EQ", "NA", "17.0")
+    ws_key = GroupingPartitionKey("WS", "NA", "11.0")
+
+    assert inspection.blocking_problems == ()
+    assert "simulation_set_selections" in inspection.required_caller_inputs
+    assert [
+        option.simulation_set_id
+        for option in partitions[eq_key].simulation_set_options
+    ] == [87, 88]
+    assert [
+        option.simulation_set_id
+        for option in partitions[ws_key].simulation_set_options
+    ] == [147]
+
+    result = manager.submit(
+        analysis_ids=[1, 2, 3],
+        settings=settings(),
+        event_rate_selections=[EventRateSelection(ws_key, 738)],
+        expected_inspection_fingerprint=inspection.fingerprint,
+        simulation_set_selections=[
+            SimulationSetSelection(eq_key, 87),
+            SimulationSetSelection(ws_key, 147),
+        ],
+    )
+
+    rows = result.request_body["settings"]["regionPerilSimulationSet"]
+    jp_rows = [row for row in rows if row["regionCode"] == "JP"]
+    eq_rows = [row for row in rows if row["perilCode"] == "EQ"]
+    ws_rows = [
+        row for row in rows
+        if row["regionCode"] == "NA" and row["perilCode"] == "WS"
+    ]
+    assert jp_rows[0]["simulationSetId"] == 15
+    assert {(row["eventRateSchemeId"], row["simulationSetId"]) for row in eq_rows} == {
+        (163, 87)
+    }
+    assert {(row["eventRateSchemeId"], row["simulationSetId"]) for row in ws_rows} == {
+        (738, 147)
+    }
+    assert {row["engineVersion"] for row in ws_rows} == {"RL23,RL25"}
     assert client.calls[-1]["json"] == result.request_body
 
 
@@ -952,7 +1094,7 @@ def test_missing_plt_region_periods_block_even_when_pet_has_default_periods():
 
 
 def test_simulation_reference_lookup_is_reused_across_subregions():
-    """Read one exact broad-region mapping for all matching source subregions."""
+    """Read the simulation-set list once for all matching source subregions."""
     details, regions = mixed_fixtures()
     regions[1].append(region(1, scheme_id=101, sub_region="TX"))
     manager, _, reference_data = make_manager(details, regions)
@@ -960,8 +1102,8 @@ def test_simulation_reference_lookup_is_reused_across_subregions():
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     assert inspection.blocking_problems == ()
-    assert len(inspection.simulation_mappings) == 2
-    assert len(reference_data.simulation_calls) == 1
+    assert len(inspection.simulation_mappings) == 1
+    assert reference_data.simulation_calls == 1
 
 
 def test_missing_member_and_region_data_have_stable_codes():
@@ -1002,24 +1144,106 @@ def test_nested_elt_group_uses_region_metadata_and_offers_scheme_choice():
     ] == [101, 102]
 
 
-def test_missing_exact_simulation_mapping_blocks_mixed_group():
-    """Treat zero exact simulation-set matches as a blocking inspection problem."""
+def test_missing_simulation_set_options_block_mixed_group():
+    """Treat zero partition simulation-set options as an inspection problem."""
     manager, _, reference_data = make_manager(*mixed_fixtures())
-    reference_data.simulation_error = IRPAPIError("No simulation set found")
+    reference_data.simulation_sets = []
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     assert "simulation_set_mapping_missing" in {p.code for p in inspection.blocking_problems}
 
 
-def test_ambiguous_exact_simulation_mapping_blocks_mixed_group():
-    """Treat multiple exact simulation-set rows as a distinct blocking problem."""
+def test_multiple_simulation_sets_are_caller_options():
+    """Return multiple simulation sets instead of blocking the grouping."""
     manager, _, reference_data = make_manager(*mixed_fixtures())
-    reference_data.simulation_error = IRPAPIError("Multiple simulation sets found")
+    reference_data.simulation_sets.append({
+        "id": 1002,
+        "eventRateSchemeId": 102,
+        "name": "North America Windstorm Alternative",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "11.0",
+        "defaultPeriods": 50000,
+    })
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    assert "simulation_set_mapping_ambiguous" in {p.code for p in inspection.blocking_problems}
+    assert inspection.blocking_problems == ()
+    partition = next(
+        partition
+        for partition in inspection.partitions
+        if partition.key == GroupingPartitionKey("WS", "NA", "11.0")
+    )
+    assert partition.simulation_set_selection_required is True
+    assert [option.simulation_set_id for option in partition.simulation_set_options] == [
+        1001,
+        1002,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("selections", "code"),
+    [
+        ([], "simulation_set_selection_missing"),
+        (
+            [
+                SimulationSetSelection(
+                    GroupingPartitionKey("WS", "NA", "11.0"), 999
+                )
+            ],
+            "simulation_set_selection_not_offered",
+        ),
+        (
+            [
+                SimulationSetSelection(
+                    GroupingPartitionKey("EQ", "NA", "17.0"), 1001
+                )
+            ],
+            "simulation_set_selection_unknown_partition",
+        ),
+    ],
+)
+def test_invalid_simulation_set_selection_blocks_post(selections, code):
+    """Return structured problems for missing, unknown, and unoffered selections."""
+    manager, client, _ = make_manager(*mixed_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint=inspection.fingerprint,
+            simulation_set_selections=selections,
+        )
+
+    assert code in {problem.code for problem in raised.value.problems}
+    assert client.calls == []
+
+
+def test_duplicate_simulation_set_selection_is_structured():
+    """Reject two simulation-set choices for the same partition."""
+    manager, client, _ = make_manager(*mixed_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    key = GroupingPartitionKey("WS", "NA", "11.0")
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint=inspection.fingerprint,
+            simulation_set_selections=[
+                SimulationSetSelection(key, 1001),
+                SimulationSetSelection(key, 1001),
+            ],
+        )
+
+    assert "simulation_set_selection_duplicate" in {
+        problem.code for problem in raised.value.problems
+    }
+    assert client.calls == []
 
 
 @pytest.mark.parametrize(

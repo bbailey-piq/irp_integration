@@ -48,11 +48,15 @@ class GroupingProblemCode(str, Enum):
     EVENT_RATE_SELECTION_UNKNOWN_PARTITION = "event_rate_selection_unknown_partition"
     EVENT_RATE_SELECTION_NOT_REQUIRED = "event_rate_selection_not_required"
     EVENT_RATE_SELECTION_NOT_OFFERED = "event_rate_selection_not_offered"
+    SIMULATION_SET_SELECTION_MISSING = "simulation_set_selection_missing"
+    SIMULATION_SET_SELECTION_DUPLICATE = "simulation_set_selection_duplicate"
+    SIMULATION_SET_SELECTION_UNKNOWN_PARTITION = "simulation_set_selection_unknown_partition"
+    SIMULATION_SET_SELECTION_NOT_REQUIRED = "simulation_set_selection_not_required"
+    SIMULATION_SET_SELECTION_NOT_OFFERED = "simulation_set_selection_not_offered"
     PET_ID_MISSING = "pet_id_missing"
     PET_PERIODS_MISSING = "pet_periods_missing"
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
     SIMULATION_SET_MAPPING_MISSING = "simulation_set_mapping_missing"
-    SIMULATION_SET_MAPPING_AMBIGUOUS = "simulation_set_mapping_ambiguous"
     INCONSISTENT_TREATY_TERMS = "inconsistent_treaty_terms"
 
 
@@ -70,6 +74,21 @@ class EventRateSchemeOption:
     """Event-rate scheme observed on at least one selected analysis."""
 
     event_rate_scheme_id: int
+    label: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SimulationSetOption:
+    """
+    Simulation set available for converting one ELT partition to PLT.
+
+    ``event_rate_scheme_id`` describes the simulation-set reference row. It
+    does not constrain the event-rate scheme selected for the group.
+    """
+
+    simulation_set_id: int
+    simulation_periods: int
+    event_rate_scheme_id: Optional[int] = None
     label: Optional[str] = None
 
 
@@ -116,11 +135,13 @@ class GroupingPartition:
     event_rate_scheme_options: Tuple[EventRateSchemeOption, ...]
     observed_pet_ids: Tuple[int, ...]
     event_rate_selection_required: bool
+    simulation_set_options: Tuple[SimulationSetOption, ...] = ()
+    simulation_set_selection_required: bool = False
 
 
 @dataclass(frozen=True)
 class GroupingSimulationMapping:
-    """Exact reference-data mapping used for one simulated ELT region."""
+    """Available reference-data mapping for one simulated ELT partition."""
 
     partition: GroupingPartitionKey
     analysis_ids: Tuple[int, ...]
@@ -216,6 +237,14 @@ class EventRateSelection:
 
 
 @dataclass(frozen=True)
+class SimulationSetSelection:
+    """Caller-selected simulation set for one ELT-to-PLT partition."""
+
+    partition: GroupingPartitionKey
+    simulation_set_id: int
+
+
+@dataclass(frozen=True)
 class GroupingSubmission:
     """Created grouping job ID and the exact submitted request body."""
 
@@ -294,7 +323,7 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 3
+    FINGERPRINT_VERSION = 4
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",
@@ -352,6 +381,7 @@ class GroupingManager:
         settings: GroupingSettings,
         event_rate_selections: Sequence[EventRateSelection],
         expected_inspection_fingerprint: str,
+        simulation_set_selections: Sequence[SimulationSetSelection] = (),
     ) -> GroupingSubmission:
         """Reinspect, validate explicit choices, and create a grouping job.
 
@@ -360,6 +390,8 @@ class GroupingManager:
             settings: Explicit grouping request settings
             event_rate_selections: One offered scheme for each conflicting partition
             expected_inspection_fingerprint: Fingerprint returned by the caller's inspection
+            simulation_set_selections: One offered simulation set for each ELT
+                partition converted to PLT
 
         Returns:
             Created grouping job ID and exact submitted request body
@@ -371,7 +403,12 @@ class GroupingManager:
         """
         normalized_ids = self._validate_analysis_ids(analysis_ids)
         self._validate_settings(settings)
-        selections = self._validate_selection_arguments(event_rate_selections)
+        event_selections = self._validate_event_rate_selection_arguments(
+            event_rate_selections
+        )
+        simulation_selections = self._validate_simulation_set_selection_arguments(
+            simulation_set_selections
+        )
         if not _text(expected_inspection_fingerprint):
             raise IRPValidationError("expected_inspection_fingerprint must be a non-empty string")
 
@@ -385,8 +422,15 @@ class GroupingManager:
         if inspection.blocking_problems:
             raise IRPGroupingValidationError(inspection.blocking_problems)
 
-        selected = self._resolve_event_rate_selections(inspection, selections)
-        request_body = self._build_request(inspection, settings, selected)
+        selected_schemes = self._resolve_event_rate_selections(
+            inspection, event_selections
+        )
+        selected_simulation_sets = self._resolve_simulation_set_selections(
+            inspection, simulation_selections
+        )
+        request_body = self._build_request(
+            inspection, settings, selected_schemes, selected_simulation_sets
+        )
         try:
             response = self.client.request("POST", CREATE_ANALYSIS_GROUP, json=request_body)
             job_id = extract_id_from_location_header(response, "analysis group creation")
@@ -464,7 +508,7 @@ class GroupingManager:
                 raise IRPValidationError(f"settings.{name} must be a string or None")
 
     @staticmethod
-    def _validate_selection_arguments(
+    def _validate_event_rate_selection_arguments(
         selections: Sequence[EventRateSelection],
     ) -> Tuple[EventRateSelection, ...]:
         if isinstance(selections, (str, bytes)) or not isinstance(selections, Sequence):
@@ -486,6 +530,32 @@ class GroupingManager:
             if not _positive_int(selection.event_rate_scheme_id):
                 raise IRPValidationError(
                     "selection.event_rate_scheme_id must be a positive integer"
+                )
+        return normalized
+
+    @staticmethod
+    def _validate_simulation_set_selection_arguments(
+        selections: Sequence[SimulationSetSelection],
+    ) -> Tuple[SimulationSetSelection, ...]:
+        if isinstance(selections, (str, bytes)) or not isinstance(selections, Sequence):
+            raise IRPValidationError("simulation_set_selections must be a sequence")
+        normalized = tuple(selections)
+        for selection in normalized:
+            if not isinstance(selection, SimulationSetSelection):
+                raise IRPValidationError(
+                    "simulation_set_selections must contain SimulationSetSelection values"
+                )
+            if not isinstance(selection.partition, GroupingPartitionKey):
+                raise IRPValidationError("selection.partition must be a GroupingPartitionKey")
+            if not all((
+                _text(selection.partition.peril_code),
+                _text(selection.partition.region_code),
+                _text(selection.partition.model_version),
+            )):
+                raise IRPValidationError("selection.partition fields must be non-empty strings")
+            if not _positive_int(selection.simulation_set_id):
+                raise IRPValidationError(
+                    "selection.simulation_set_id must be a positive integer"
                 )
         return normalized
 
@@ -532,10 +602,13 @@ class GroupingManager:
             return pet_cache[key]
 
         def scheme_name(scheme_id: int) -> Optional[str]:
-            """The Platform's own name for an event-rate scheme ID. A member's
-            region rows carry the ID alone, and its detail names at most one
+            """
+            Return the Platform's own name for an event-rate scheme ID.
+
+            A member's region rows carry the ID alone, and its detail names at most one
             scheme, so the reference list is the only source that names every
-            offered ID."""
+            offered ID.
+            """
             nonlocal scheme_names
             if scheme_names is None:
                 payload = self._irp.reference_data.get_event_rate_schemes()
@@ -782,10 +855,21 @@ class GroupingManager:
             key = GroupingPartitionKey(fact.peril_code, fact.region_code, fact.model_version)
             partition_facts.setdefault(key, []).append(fact)
 
+        simulation_rows: List[Dict[str, Any]] = []
+        if simulate_to_plt and any(fact.framework == "ELT" for fact in all_facts):
+            raw_simulation_rows = self._irp.reference_data.get_all_simulation_sets()
+            if not isinstance(raw_simulation_rows, list):
+                raise IRPAPIError("Simulation-set search returned a non-list response")
+            simulation_rows = [
+                row for row in raw_simulation_rows if isinstance(row, dict)
+            ]
+
         partitions: List[GroupingPartition] = []
+        mappings: List[GroupingSimulationMapping] = []
         for key in sorted(partition_facts, key=self._partition_sort_key):
             facts = partition_facts[key]
             analysis_id_set = tuple(sorted({fact.analysis_id for fact in facts}))
+            elt_facts = [fact for fact in facts if fact.framework == "ELT"]
             scheme_ids = sorted({
                 fact.event_rate_scheme_id for fact in facts
                 if fact.framework == "ELT" and fact.event_rate_scheme_id is not None
@@ -794,6 +878,52 @@ class GroupingManager:
                 fact.pet_id for fact in facts
                 if fact.framework == "PLT" and fact.pet_id is not None
             }))
+            broad_model_region = f"{key.region_code}{key.peril_code}"
+            simulation_options: Dict[int, SimulationSetOption] = {}
+            if simulate_to_plt and elt_facts:
+                for row in simulation_rows:
+                    row_version = _field(row, "modelVersionCode", "modelVersion")
+                    if (
+                        row.get("modelRegionCode") != broad_model_region
+                        or str(row_version) != key.model_version
+                        or row.get("perilCode") != key.peril_code
+                        or row.get("peqtSource") not in (None, "SYSTEM")
+                    ):
+                        continue
+                    simulation_id = _field(row, "id", "simulationSetId")
+                    simulation_periods = _field(
+                        row, "defaultPeriods", "simulationPeriods"
+                    )
+                    if not _positive_int(simulation_id) or not _positive_int(
+                        simulation_periods
+                    ):
+                        continue
+                    row_scheme = row.get("eventRateSchemeId")
+                    simulation_options[int(simulation_id)] = SimulationSetOption(
+                        simulation_set_id=int(simulation_id),
+                        simulation_periods=int(simulation_periods),
+                        event_rate_scheme_id=(
+                            int(row_scheme) if _positive_int(row_scheme) else None
+                        ),
+                        label=_text(row.get("name")),
+                    )
+
+                if not simulation_options:
+                    problems.append(GroupingProblem(
+                        code=GroupingProblemCode.SIMULATION_SET_MAPPING_MISSING.value,
+                        message=(
+                            f"No simulation set is available for peril {key.peril_code}, "
+                            f"region {key.region_code}, and model version "
+                            f"{key.model_version}."
+                        ),
+                        analysis_ids=tuple(sorted({fact.analysis_id for fact in elt_facts})),
+                        partition=key,
+                    ))
+
+            ordered_simulation_options = tuple(
+                simulation_options[simulation_id]
+                for simulation_id in sorted(simulation_options)
+            )
             partitions.append(GroupingPartition(
                 key=key,
                 analysis_ids=analysis_id_set,
@@ -805,86 +935,19 @@ class GroupingManager:
                 ),
                 observed_pet_ids=pet_ids,
                 event_rate_selection_required=len(scheme_ids) > 1,
+                simulation_set_options=ordered_simulation_options,
+                simulation_set_selection_required=bool(ordered_simulation_options),
             ))
-
-        mappings: List[GroupingSimulationMapping] = []
-        if simulate_to_plt:
-            simulation_cache: Dict[
-                Tuple[int, str, str], Tuple[Optional[Dict[str, Any]], Optional[Exception]]
-            ] = {}
-            mapping_groups: Dict[
-                Tuple[GroupingPartitionKey, str, str, int], List[GroupingRegionFact]
-            ] = {}
-            schemes_by_key = {
-                partition.key: tuple(
-                    option.event_rate_scheme_id for option in partition.event_rate_scheme_options
-                )
-                for partition in partitions
-            }
-            for fact in all_facts:
-                if fact.framework != "ELT":
-                    continue
-                key = GroupingPartitionKey(fact.peril_code, fact.region_code, fact.model_version)
-                for scheme_id in schemes_by_key.get(key, ()):
-                    mapping_groups.setdefault(
-                        (key, fact.engine_version, fact.model_region_code, scheme_id), []
-                    ).append(fact)
-
-            for mapping_key in sorted(
-                mapping_groups,
-                key=lambda value: (
-                    self._partition_sort_key(value[0]), value[1], value[2], value[3]
-                ),
-            ):
-                key, engine, model_region, scheme_id = mapping_key
-                facts = mapping_groups[mapping_key]
-                broad_model_region = f"{key.region_code}{key.peril_code}"
-                reference_key = (scheme_id, broad_model_region, key.model_version)
-                if reference_key not in simulation_cache:
-                    try:
-                        resolved_row = self._irp.reference_data.get_simulation_set_exact(
-                            event_rate_scheme_id=scheme_id,
-                            model_region_code=broad_model_region,
-                            model_version=key.model_version,
-                        )
-                        simulation_cache[reference_key] = (resolved_row, None)
-                    except IRPAPIError as exc:
-                        simulation_cache[reference_key] = (None, exc)
-                cached_row, mapping_error = simulation_cache[reference_key]
-                if mapping_error is not None:
-                    code = (GroupingProblemCode.SIMULATION_SET_MAPPING_AMBIGUOUS.value
-                            if "multiple" in str(mapping_error).lower()
-                            else GroupingProblemCode.SIMULATION_SET_MAPPING_MISSING.value)
-                    problems.append(GroupingProblem(
-                        code=code,
-                        message=(f"Simulation set for scheme {scheme_id}, model region "
-                                 f"{broad_model_region}, and model version {key.model_version} "
-                                 "was not resolved exactly."),
-                        analysis_ids=tuple(sorted({fact.analysis_id for fact in facts})),
-                        partition=key,
-                    ))
-                    continue
-                if cached_row is None:
-                    raise IRPAPIError("Exact simulation-set lookup returned no row")
-                simulation_id = _field(cached_row, "id", "simulationSetId")
-                simulation_periods = _field(cached_row, "defaultPeriods", "numberOfPeriods")
-                if not _positive_int(simulation_id) or not _positive_int(simulation_periods):
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.SIMULATION_SET_MAPPING_MISSING.value,
-                        message=(f"Simulation set for scheme {scheme_id} has no positive ID "
-                                 "or period count."),
-                        analysis_ids=tuple(sorted({fact.analysis_id for fact in facts})),
-                        partition=key,
-                    ))
-                    continue
+            engines = ",".join(sorted({fact.engine_version for fact in elt_facts}))
+            for option in ordered_simulation_options:
                 mappings.append(GroupingSimulationMapping(
                     partition=key,
-                    analysis_ids=tuple(sorted({fact.analysis_id for fact in facts})),
-                    engine_version=engine,
-                    model_region_code=model_region,
-                    event_rate_scheme_id=scheme_id,
-                    simulation_set_id=int(simulation_id),
-                    simulation_periods=int(simulation_periods),
+                    analysis_ids=tuple(sorted({fact.analysis_id for fact in elt_facts})),
+                    engine_version=engines,
+                    model_region_code=broad_model_region,
+                    event_rate_scheme_id=option.event_rate_scheme_id or 0,
+                    simulation_set_id=option.simulation_set_id,
+                    simulation_periods=option.simulation_periods,
                 ))
 
         problems = self._deduplicate_problems(problems)
@@ -897,6 +960,8 @@ class GroupingManager:
         ]
         if any(partition.event_rate_selection_required for partition in partitions):
             required.append("event_rate_selections")
+        if any(partition.simulation_set_selection_required for partition in partitions):
+            required.append("simulation_set_selections")
 
         inspected_at = datetime.now(timezone.utc).isoformat()
         resource_uris = tuple(
@@ -1097,6 +1162,17 @@ class GroupingManager:
                 ),
                 "observed_pet_ids": partition.observed_pet_ids,
                 "event_rate_selection_required": partition.event_rate_selection_required,
+                "simulation_set_options": tuple(
+                    (
+                        option.simulation_set_id,
+                        option.simulation_periods,
+                        option.event_rate_scheme_id,
+                    )
+                    for option in partition.simulation_set_options
+                ),
+                "simulation_set_selection_required": (
+                    partition.simulation_set_selection_required
+                ),
             })
         problem_payload = [{
             "code": problem.code,
@@ -1198,14 +1274,101 @@ class GroupingManager:
                 resolved[key] = supplied[key]
         return resolved
 
+    def _resolve_simulation_set_selections(
+        self,
+        inspection: GroupingInspection,
+        selections: Tuple[SimulationSetSelection, ...],
+    ) -> Dict[GroupingPartitionKey, SimulationSetOption]:
+        partitions = {partition.key: partition for partition in inspection.partitions}
+        required = {
+            key: partition for key, partition in partitions.items()
+            if partition.simulation_set_selection_required
+        }
+        supplied: Dict[GroupingPartitionKey, int] = {}
+        problems: List[GroupingProblem] = []
+        for selection in selections:
+            key = selection.partition
+            if key in supplied:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_SET_SELECTION_DUPLICATE.value,
+                    message=(
+                        "An ELT-to-PLT partition has more than one simulation-set "
+                        "selection."
+                    ),
+                    partition=key,
+                ))
+                continue
+            supplied[key] = selection.simulation_set_id
+            partition = partitions.get(key)
+            if partition is None:
+                problems.append(GroupingProblem(
+                    code=(
+                        GroupingProblemCode
+                        .SIMULATION_SET_SELECTION_UNKNOWN_PARTITION.value
+                    ),
+                    message=(
+                        "A simulation-set selection names a partition not returned "
+                        "by inspection."
+                    ),
+                    partition=key,
+                ))
+                continue
+            if key not in required:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_SET_SELECTION_NOT_REQUIRED.value,
+                    message=(
+                        "A simulation-set selection was supplied for a partition "
+                        "that is not converted from ELT to PLT."
+                    ),
+                    analysis_ids=partition.analysis_ids,
+                    partition=key,
+                ))
+                continue
+            offered = {
+                option.simulation_set_id for option in partition.simulation_set_options
+            }
+            if selection.simulation_set_id not in offered:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_SET_SELECTION_NOT_OFFERED.value,
+                    message=(
+                        f"Simulation set {selection.simulation_set_id} was not offered "
+                        "for this partition."
+                    ),
+                    analysis_ids=partition.analysis_ids,
+                    partition=key,
+                ))
+        for key, partition in required.items():
+            if key not in supplied:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_SET_SELECTION_MISSING.value,
+                    message=(
+                        "An ELT-to-PLT partition requires an explicit simulation-set "
+                        "selection."
+                    ),
+                    analysis_ids=partition.analysis_ids,
+                    partition=key,
+                ))
+        if problems:
+            raise IRPGroupingValidationError(tuple(self._deduplicate_problems(problems)))
+
+        return {
+            key: next(
+                option
+                for option in partition.simulation_set_options
+                if option.simulation_set_id == supplied[key]
+            )
+            for key, partition in required.items()
+        }
+
     def _build_request(
         self,
         inspection: GroupingInspection,
         settings: GroupingSettings,
         selected_schemes: Dict[GroupingPartitionKey, int],
+        selected_simulation_sets: Dict[GroupingPartitionKey, SimulationSetOption],
     ) -> Dict[str, Any]:
         region_peril = self._build_region_peril_simulation_set(
-            inspection, selected_schemes
+            inspection, selected_schemes, selected_simulation_sets
         )
         request_settings: Dict[str, Any] = {
             "analysisName": settings.analysis_name,
@@ -1239,6 +1402,7 @@ class GroupingManager:
         self,
         inspection: GroupingInspection,
         selected_schemes: Dict[GroupingPartitionKey, int],
+        selected_simulation_sets: Dict[GroupingPartitionKey, SimulationSetOption],
     ) -> List[Dict[str, Any]]:
         conflicting = any(
             partition.event_rate_selection_required for partition in inspection.partitions
@@ -1246,14 +1410,17 @@ class GroupingManager:
         if not inspection.simulate_to_plt and not conflicting:
             return []
 
-        mappings = {
-            (
-                mapping.partition,
-                mapping.engine_version,
-                mapping.model_region_code,
-                mapping.event_rate_scheme_id,
-            ): mapping
-            for mapping in inspection.simulation_mappings
+        elt_engines = {
+            partition.key: ",".join(sorted({
+                fact.engine_version
+                for member in inspection.members
+                for fact in member.regions
+                if fact.framework == "ELT"
+                and GroupingPartitionKey(
+                    fact.peril_code, fact.region_code, fact.model_version
+                ) == partition.key
+            }))
+            for partition in inspection.partitions
         }
         entries: Dict[str, Dict[str, Any]] = {}
         for member in inspection.members:
@@ -1279,16 +1446,14 @@ class GroupingManager:
                     if scheme_id is None:
                         continue
                     if inspection.simulate_to_plt:
-                        mapping = mappings[(
-                            key, fact.engine_version, fact.model_region_code, scheme_id
-                        )]
-                        simulation_set_id = mapping.simulation_set_id
-                        simulation_periods = mapping.simulation_periods
+                        simulation_set = selected_simulation_sets[key]
+                        simulation_set_id = simulation_set.simulation_set_id
+                        simulation_periods = simulation_set.simulation_periods
                     else:
                         simulation_set_id = 0
                         simulation_periods = 0
                     entry = {
-                        "engineVersion": fact.engine_version,
+                        "engineVersion": elt_engines[key],
                         "eventRateSchemeId": scheme_id,
                         "modelRegionCode": fact.model_region_code,
                         "modelVersion": fact.model_version,
@@ -1318,4 +1483,6 @@ __all__ = [
     "GroupingSimulationMapping",
     "GroupingSubmission",
     "GroupingTreaty",
+    "SimulationSetOption",
+    "SimulationSetSelection",
 ]

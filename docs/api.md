@@ -51,6 +51,8 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [GroupingSimulationMapping](#class-groupingsimulationmapping)
   - [GroupingSubmission](#class-groupingsubmission)
   - [GroupingTreaty](#class-groupingtreaty)
+  - [SimulationSetOption](#class-simulationsetoption)
+  - [SimulationSetSelection](#class-simulationsetselection)
 - [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
 - [`irp_integration.rdm`](#irp_integrationrdm)
   - [RDMManager](#class-rdmmanager)
@@ -2371,7 +2373,8 @@ def submit(
     analysis_ids: Sequence[int],
     settings: irp_integration.grouping.GroupingSettings,
     event_rate_selections: Sequence[irp_integration.grouping.EventRateSelection],
-    expected_inspection_fingerprint: str
+    expected_inspection_fingerprint: str,
+    simulation_set_selections: Sequence[irp_integration.grouping.SimulationSetSelection] = ()
 ) -> irp_integration.grouping.GroupingSubmission
 ```
 
@@ -2382,6 +2385,8 @@ Reinspect, validate explicit choices, and create a grouping job.
  - **settings:**  Explicit grouping request settings
  - **event_rate_selections:**  One offered scheme for each conflicting partition
  - **expected_inspection_fingerprint:**  Fingerprint returned by the caller's inspection
+ - **simulation_set_selections:**  One offered simulation set for each ELT
+   partition converted to PLT
 
 **Returns:**
 > Created grouping job ID and exact submitted request body
@@ -2444,7 +2449,9 @@ def __init__(
     analysis_ids: Tuple[int, ...],
     event_rate_scheme_options: Tuple[irp_integration.grouping.EventRateSchemeOption, ...],
     observed_pet_ids: Tuple[int, ...],
-    event_rate_selection_required: bool
+    event_rate_selection_required: bool,
+    simulation_set_options: Tuple[irp_integration.grouping.SimulationSetOption, ...] = (),
+    simulation_set_selection_required: bool = False
 )
 ```
 
@@ -2531,7 +2538,7 @@ def __init__(
 
 ### `class GroupingSimulationMapping`
 
-Exact reference-data mapping used for one simulated ELT region.
+Available reference-data mapping for one simulated ELT partition.
 
 #### `__init__`
 
@@ -2573,6 +2580,38 @@ def __init__(
     treaty_id: Optional[int],
     treaty_number: str,
     terms: Dict[str, Any]
+)
+```
+
+### `class SimulationSetOption`
+
+Simulation set available for converting one ELT partition to PLT.
+
+``event_rate_scheme_id`` describes the simulation-set reference row. It does not constrain the event-rate scheme selected for the group.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    simulation_set_id: int,
+    simulation_periods: int,
+    event_rate_scheme_id: Optional[int] = None,
+    label: Optional[str] = None
+)
+```
+
+### `class SimulationSetSelection`
+
+Caller-selected simulation set for one ELT-to-PLT partition.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    partition: irp_integration.grouping.GroupingPartitionKey,
+    simulation_set_id: int
 )
 ```
 
@@ -3877,8 +3916,9 @@ def get_simulation_set_by_event_rate_scheme_id(self, event_rate_scheme_id: int) 
 
 Get simulation set by event rate scheme ID.
 
-For ELT analyses, the simulationSetId in grouping requests comes from
-this lookup using the eventRateSchemeId from the analysis regions.
+The lookup preserves its strict historical behavior. Grouping inspection
+reads all active simulation sets because Risk Modeler allows a simulation
+set to be selected independently of the event-rate scheme.
 
 **Arguments:**
  - **event_rate_scheme_id:**  Event rate scheme ID from analysis regions
@@ -3901,7 +3941,7 @@ def get_simulation_set_exact(
 ) -> Dict[str, Any]
 ```
 
-Return one exact simulation-set mapping for grouping.
+Return one exact simulation-set mapping.
 
 **Arguments:**
  - **event_rate_scheme_id:**  Positive event-rate scheme ID
@@ -3932,9 +3972,9 @@ The lookup uses regionCode + perilCode to build the broader modelRegionCode
 (e.g., "NA" + "WS" = "NAWS") since SimulationSet entries use broader regional
 codes, not sub-region-specific codes like "HTWS".
 
-The method rejects multiple matches. Grouping uses
-``get_simulation_set_exact`` because this lookup does not include an
-event-rate scheme or model version.
+The method rejects multiple matches. Grouping inspection does not use
+this helper because Risk Modeler presents every simulation set for the
+peril, region, and model version as a caller choice.
 
 **Arguments:**
  - **region_code:**  Region code (e.g., "NA", "US", "CB")

@@ -582,8 +582,9 @@ class ReferenceDataManager:
         """
         Get simulation set by event rate scheme ID.
 
-        For ELT analyses, the simulationSetId in grouping requests comes from
-        this lookup using the eventRateSchemeId from the analysis regions.
+        The lookup preserves its strict historical behavior. Grouping inspection
+        reads all active simulation sets because Risk Modeler allows a simulation
+        set to be selected independently of the event-rate scheme.
 
         Args:
             event_rate_scheme_id: Event rate scheme ID from analysis regions
@@ -617,7 +618,7 @@ class ReferenceDataManager:
         model_region_code: str,
         model_version: str,
     ) -> Dict[str, Any]:
-        """Return one exact simulation-set mapping for grouping.
+        """Return one exact simulation-set mapping.
 
         Args:
             event_rate_scheme_id: Positive event-rate scheme ID
@@ -667,9 +668,9 @@ class ReferenceDataManager:
         (e.g., "NA" + "WS" = "NAWS") since SimulationSet entries use broader regional
         codes, not sub-region-specific codes like "HTWS".
 
-        The method rejects multiple matches. Grouping uses
-        ``get_simulation_set_exact`` because this lookup does not include an
-        event-rate scheme or model version.
+        The method rejects multiple matches. Grouping inspection does not use
+        this helper because Risk Modeler presents every simulation set for the
+        peril, region, and model version as a caller choice.
 
         Args:
             region_code: Region code (e.g., "NA", "US", "CB")
