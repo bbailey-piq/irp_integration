@@ -713,15 +713,28 @@ def test_missing_member_and_region_data_have_stable_codes():
     }
 
 
-def test_contradictory_elt_detail_and_region_metadata_blocks():
-    """Do not silently choose between conflicting analysis and region facts."""
-    details, regions = pure_elt_fixtures()
-    regions[2][0]["region"] = "EU"
+def test_nested_elt_group_uses_region_metadata_and_offers_scheme_choice():
+    """Do not compare each nested group region with its summary metadata."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    for detail in details.values():
+        detail.update({
+            "engineType": "Group",
+            "isGroup": True,
+            "engineVersion": "RL24",
+            "perilCode": "WF",
+            "regionCode": "US",
+        })
     manager, _, _ = make_manager(details, regions)
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    assert "member_metadata_conflict" in {p.code for p in inspection.blocking_problems}
+    assert inspection.blocking_problems == ()
+    assert inspection.partitions[0].key == GroupingPartitionKey("WS", "NA", "11.0")
+    assert inspection.partitions[0].event_rate_selection_required is True
+    assert [
+        option.event_rate_scheme_id
+        for option in inspection.partitions[0].event_rate_scheme_options
+    ] == [101, 102]
 
 
 def test_missing_exact_simulation_mapping_blocks_mixed_group():

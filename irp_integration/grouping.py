@@ -37,7 +37,6 @@ class GroupingProblemCode(str, Enum):
     INSPECTION_CHANGED = "inspection_changed"
     MEMBER_NOT_FOUND = "member_not_found"
     MEMBER_METADATA_MISSING = "member_metadata_missing"
-    MEMBER_METADATA_CONFLICT = "member_metadata_conflict"
     MEMBER_REGION_DATA_MISSING = "member_region_data_missing"
     MEMBER_CLASSIFICATION_CONFLICT = "member_classification_conflict"
     MODEL_VERSION_MAPPING_MISSING = "model_version_mapping_missing"
@@ -684,18 +683,6 @@ class GroupingManager:
                         analysis_ids=(analysis_id,),
                     ))
                     continue
-
-                if framework == "ELT" and (
-                    (row_engine and detail_engine and row_engine != detail_engine)
-                    or (row_peril and detail_peril and row_peril != detail_peril)
-                    or (row_region and detail_region and row_region != detail_region)
-                ):
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.MEMBER_METADATA_CONFLICT.value,
-                        message=(f"Analysis {analysis_id} detail metadata conflicts with "
-                                 "its ELT region metadata."),
-                        analysis_ids=(analysis_id,),
-                    ))
 
                 if resolved_version is None:
                     resolved_version, version_error = model_version(engine, region, peril)
