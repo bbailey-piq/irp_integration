@@ -14,6 +14,7 @@ from irp_integration.grouping import (
     GroupingManager,
     GroupingPartitionKey,
     GroupingSettings,
+    GroupingTreaty,
 )
 
 
@@ -319,7 +320,7 @@ def test_matching_treaty_terms_ignore_non_loss_properties():
 
 
 def test_inconsistent_treaty_terms_return_structured_warning():
-    """Name the Treaty Number, analyses, treaties, and differing terms."""
+    """Return each compared analysis treaty and its differing term value."""
     details, regions = pure_elt_fixtures()
     manager, _, _ = make_manager(
         details,
@@ -340,6 +341,78 @@ def test_inconsistent_treaty_terms_return_structured_warning():
     assert warning.treaty_numbers == ("CATA-1",)
     assert warning.treaty_ids == (11, 22)
     assert warning.differing_fields == ("occurrenceLimit",)
+    assert [
+        (row.analysis_id, row.treaty_id, row.treaty_number)
+        for row in warning.treaties
+    ] == [(1, 11, "CATA-1"), (2, 22, "CATA-1")]
+    assert [row.terms["occurrenceLimit"] for row in warning.treaties] == [
+        1_000_000,
+        2_000_000,
+    ]
+    assert all(isinstance(row, GroupingTreaty) for row in warning.treaties)
+
+
+def test_inconsistent_treaty_currency_returns_normalized_codes():
+    """Return normalized currency codes that explain a currency mismatch."""
+    details, regions = pure_elt_fixtures()
+    first = treaty(1, 11)
+    second = treaty(2, 22)
+    second["currency"] = {"id": 2, "code": "CAD", "name": "Canadian Dollar"}
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={1: [first], 2: [second]},
+    )
+
+    warning = manager.inspect(analysis_ids=[1, 2]).warnings[0]
+
+    assert warning.differing_fields == ("currency",)
+    assert [row.terms["currency"] for row in warning.treaties] == ["USD", "CAD"]
+
+
+def test_inconsistent_treaty_rows_are_sorted_by_analysis_and_treaty_id():
+    """Sort three compared analysis treaties by analysis ID and treaty ID."""
+    details, regions = pure_elt_fixtures()
+    details[3] = analysis(3, scheme_id=101)
+    regions[3] = [region(3, scheme_id=101)]
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={
+            1: [treaty(1, 31)],
+            2: [treaty(2, 22, occurrence_limit=2_000_000)],
+            3: [treaty(3, 13)],
+        },
+    )
+
+    warning = manager.inspect(analysis_ids=[3, 1, 2]).warnings[0]
+
+    assert [
+        (row.analysis_id, row.treaty_id) for row in warning.treaties
+    ] == [(1, 31), (2, 22), (3, 13)]
+
+
+def test_inconsistent_treaty_row_keeps_missing_treaty_id():
+    """Return a compared analysis treaty whose treatyId is absent."""
+    details, regions = pure_elt_fixtures()
+    first = treaty(1, 11)
+    first.pop("treatyId")
+    manager, _, _ = make_manager(
+        details,
+        regions,
+        treaties={
+            1: [first],
+            2: [treaty(2, 22, occurrence_limit=2_000_000)],
+        },
+    )
+
+    warning = manager.inspect(analysis_ids=[1, 2]).warnings[0]
+
+    assert warning.treaty_ids == (22,)
+    assert [(row.analysis_id, row.treaty_id) for row in warning.treaties] == [
+        (1, None),
+        (2, 22),
+    ]
 
 
 def test_different_treaty_numbers_are_not_compared():

@@ -10,8 +10,9 @@ terms produce warnings but do not block submission.
 
 Treaty comparison includes cedant, treaty type, currency, attachment and limit
 terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs,
-and loss occurrences. It excludes treaty IDs, display names, producers,
-premiums, user-defined fields, tags, and URIs.
+and loss occurrences. Each warning carries the compared analysis treaty rows.
+Treaty comparison excludes treaty IDs, display names, producers, premiums,
+user-defined fields, tags, and URIs.
 """
 
 from __future__ import annotations
@@ -131,6 +132,25 @@ class GroupingSimulationMapping:
 
 
 @dataclass(frozen=True)
+class GroupingTreaty:
+    """One treaty as applied to one analysis, with the loss-affecting terms the grouping comparison read.
+
+    Terms are the analysis-level values from
+    ``AnalysisManager.search_analysis_treaties_paginated``, not the EDM
+    definition: an analysis run in CAD against a treaty defined in USD
+    reports CAD. Keys are the ``LOSS_AFFECTING_TREATY_FIELDS`` names plus
+    ``lobs`` and ``lossOccurrences``, normalized the same way the comparison
+    normalizes them, so a value shown for a field in ``differing_fields``
+    always explains why that field differs.
+    """
+
+    analysis_id: int
+    treaty_id: Optional[int]
+    treaty_number: str
+    terms: Dict[str, Any]
+
+
+@dataclass(frozen=True)
 class GroupingProblem:
     """Structured grouping problem suitable for caller rendering."""
 
@@ -142,6 +162,7 @@ class GroupingProblem:
     treaty_numbers: Tuple[str, ...] = ()
     treaty_ids: Tuple[int, ...] = ()
     differing_fields: Tuple[str, ...] = ()
+    treaties: Tuple[GroupingTreaty, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1016,6 +1037,21 @@ class GroupingManager:
                 treaty_numbers=(treaty_number,),
                 treaty_ids=affected_treaty_ids,
                 differing_fields=differing_fields,
+                treaties=tuple(
+                    GroupingTreaty(
+                        analysis_id=int(treaty["analysis_id"]),
+                        treaty_id=treaty["treaty_id"],
+                        treaty_number=treaty["treaty_number"],
+                        terms=treaty["terms"],
+                    )
+                    for treaty in sorted(
+                        matches,
+                        key=lambda treaty: (
+                            treaty["analysis_id"],
+                            treaty["treaty_id"] or 0,
+                        ),
+                    )
+                ),
             ))
         return warnings
 
@@ -1263,4 +1299,5 @@ __all__ = [
     "GroupingSettings",
     "GroupingSimulationMapping",
     "GroupingSubmission",
+    "GroupingTreaty",
 ]

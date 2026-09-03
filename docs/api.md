@@ -50,6 +50,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [GroupingSettings](#class-groupingsettings)
   - [GroupingSimulationMapping](#class-groupingsimulationmapping)
   - [GroupingSubmission](#class-groupingsubmission)
+  - [GroupingTreaty](#class-groupingtreaty)
 - [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
 - [`irp_integration.rdm`](#irp_integrationrdm)
   - [RDMManager](#class-rdmmanager)
@@ -2264,7 +2265,7 @@ Rules-based analysis grouping operations.
 
 Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, treaties, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately. Treaties with the same Treaty Number and different loss-affecting terms produce warnings but do not block submission.
 
-Treaty comparison includes cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, and loss occurrences. It excludes treaty IDs, display names, producers, premiums, user-defined fields, tags, and URIs.
+Treaty comparison includes cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, and loss occurrences. Each warning carries the compared analysis treaty rows. Treaty comparison excludes treaty IDs, display names, producers, premiums, user-defined fields, tags, and URIs.
 
 ### `class EventRateSchemeOption`
 
@@ -2473,7 +2474,8 @@ def __init__(
     pet_ids: Tuple[int, ...] = (),
     treaty_numbers: Tuple[str, ...] = (),
     treaty_ids: Tuple[int, ...] = (),
-    differing_fields: Tuple[str, ...] = ()
+    differing_fields: Tuple[str, ...] = (),
+    treaties: Tuple[irp_integration.grouping.GroupingTreaty, ...] = ()
 )
 ```
 
@@ -2554,6 +2556,24 @@ Created grouping job ID and the exact submitted request body.
 
 ```python
 def __init__(self, job_id: int, request_body: Dict[str, Any])
+```
+
+### `class GroupingTreaty`
+
+One treaty as applied to one analysis, with the loss-affecting terms the grouping comparison read.
+
+Terms are the analysis-level values from ``AnalysisManager.search_analysis_treaties_paginated``, not the EDM definition: an analysis run in CAD against a treaty defined in USD reports CAD. Keys are the ``LOSS_AFFECTING_TREATY_FIELDS`` names plus ``lobs`` and ``lossOccurrences``, normalized the same way the comparison normalizes them, so a value shown for a field in ``differing_fields`` always explains why that field differs.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_id: int,
+    treaty_id: Optional[int],
+    treaty_number: str,
+    terms: Dict[str, Any]
+)
 ```
 
 ---
