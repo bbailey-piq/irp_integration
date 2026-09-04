@@ -50,6 +50,88 @@ client.analysis.submit_portfolio_analysis_job(
 )
 ```
 
+### Analysis grouping
+
+Grouping uses a two-step contract. Inspect exact Platform analysis IDs first,
+render any returned event-rate choices or blocking problems, and pass the
+inspection fingerprint back when submitting. Submission repeats every read and
+creates no job if request-affecting facts changed.
+
+```python
+from irp_integration.grouping import (
+    EventRateSelection,
+    GroupingCurrency,
+    GroupingSettings,
+    SimulationPeriodsSelection,
+    SimulationSetSelection,
+)
+
+inspection = client.grouping.inspect(analysis_ids=[12345, 12346])
+
+# Populate both mappings from the caller's selections.
+selected_event_rate_scheme_ids = {...}
+selected_simulation_set_ids = {...}
+
+selections = tuple(
+    EventRateSelection(
+        partition=partition.key,
+        event_rate_scheme_id=selected_event_rate_scheme_ids[partition.key],
+    )
+    for partition in inspection.partitions
+    if partition.event_rate_selection_required
+)
+
+simulation_selections = tuple(
+    SimulationSetSelection(
+        partition=partition.key,
+        simulation_set_id=selected_simulation_set_ids[partition.key],
+    )
+    for partition in inspection.partitions
+    if partition.simulation_set_selection_required
+)
+
+# Optional: one simulationPeriods value per partition of a PLT group.
+periods_selections = tuple(
+    SimulationPeriodsSelection(partition=partition.key, simulation_periods=50000)
+    for partition in inspection.partitions
+) if inspection.simulate_to_plt else ()
+
+submission = client.grouping.submit(
+    analysis_ids=inspection.analysis_ids,
+    settings=GroupingSettings(
+        analysis_name="Example Group",
+        currency=GroupingCurrency(
+            code="USD",
+            scheme="RMS",
+            vintage="RL25",
+            as_of_date="2026-01-01",
+        ),
+        propagate_detailed_losses=True,
+        num_of_simulations=50000,
+    ),
+    event_rate_selections=selections,
+    expected_inspection_fingerprint=inspection.fingerprint,
+    simulation_set_selections=simulation_selections,
+    simulation_periods_selections=periods_selections,
+)
+```
+
+The package does not choose event-rate schemes, simulation sets, simulation
+counts, currency, detailed-loss settings, windows, or a grouping set. Inspection
+returns simulation-set choices for every ELT peril/region/model-version
+partition that must be converted to PLT. The simulation-set choice is independent
+of the event-rate-scheme choice. A PLT member keeps its own `petId` and does not
+require a simulation-set choice. A `SimulationPeriodsSelection` sets
+`regionPerilSimulationSet[].simulationPeriods` for one partition of a PLT group;
+without one, a PLT row keeps its PET's period count and a converted ELT row keeps
+the chosen set's `defaultPeriods`.
+
+Inspection
+compares loss-affecting terms for treaties that share a Treaty Number. Any
+inconsistency is returned in `inspection.warnings`; it does not block grouping.
+Treaty IDs, display names, producers, premiums, user-defined fields, tags, and
+URIs are not part of the comparison.
+
 ## Configuration
 
 The library reads configuration from environment variables:
@@ -183,7 +265,8 @@ results = dbm.execute_query_from_file(
 | `client.portfolio` | Portfolio CRUD, geocoding, and hazard processing |
 | `client.mri_import` | MRI (CSV) data import workflow — bucket creation, file upload, mapping, and execution |
 | `client.treaty` | Reinsurance treaty creation, LOB assignment, and reference data |
-| `client.analysis` | Risk analysis execution, profiles, event rate schemes, and analysis groups |
+| `client.analysis` | Risk analysis execution, profiles, event rate schemes, and results |
+| `client.grouping` | Rules-based analysis-group inspection, submission, and job status |
 | `client.rdm` | Results Data Mart — export analysis results to RDM |
 | `client.risk_data_job` | Risk data job status tracking |
 | `client.import_job` | Platform import job management (EDM/RDM imports) |
