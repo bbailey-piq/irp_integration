@@ -62,6 +62,7 @@ from irp_integration.grouping import (
     EventRateSelection,
     GroupingCurrency,
     GroupingSettings,
+    SimulationPeriodsSelection,
     SimulationSetSelection,
 )
 
@@ -89,6 +90,12 @@ simulation_selections = tuple(
     if partition.simulation_set_selection_required
 )
 
+# Optional: one simulationPeriods value per partition of a PLT group.
+periods_selections = tuple(
+    SimulationPeriodsSelection(partition=partition.key, simulation_periods=50000)
+    for partition in inspection.partitions
+) if inspection.simulate_to_plt else ()
+
 submission = client.grouping.submit(
     analysis_ids=inspection.analysis_ids,
     settings=GroupingSettings(
@@ -105,6 +112,7 @@ submission = client.grouping.submit(
     event_rate_selections=selections,
     expected_inspection_fingerprint=inspection.fingerprint,
     simulation_set_selections=simulation_selections,
+    simulation_periods_selections=periods_selections,
 )
 ```
 
@@ -113,7 +121,10 @@ counts, currency, detailed-loss settings, windows, or a grouping set. Inspection
 returns simulation-set choices for every ELT peril/region/model-version
 partition that must be converted to PLT. The simulation-set choice is independent
 of the event-rate-scheme choice. A PLT member keeps its own `petId` and does not
-require a simulation-set choice.
+require a simulation-set choice. A `SimulationPeriodsSelection` sets
+`regionPerilSimulationSet[].simulationPeriods` for one partition of a PLT group;
+without one, a PLT row keeps its PET's period count and a converted ELT row keeps
+the chosen set's `defaultPeriods`.
 
 Inspection
 compares loss-affecting terms for treaties that share a Treaty Number. Any

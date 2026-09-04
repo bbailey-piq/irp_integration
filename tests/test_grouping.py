@@ -15,6 +15,7 @@ from irp_integration.grouping import (
     GroupingPartitionKey,
     GroupingSettings,
     GroupingTreaty,
+    SimulationPeriodsSelection,
     SimulationSetSelection,
 )
 
@@ -1279,6 +1280,125 @@ def test_duplicate_simulation_set_selection_is_structured():
     assert "simulation_set_selection_duplicate" in {
         problem.code for problem in raised.value.problems
     }
+    assert client.calls == []
+
+
+def _mixed_submit(manager, inspection, **overrides):
+    """Submit the mixed ELT + PLT fixtures with set 1001 on the WS partition."""
+    kwargs = dict(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+        simulation_set_selections=[
+            SimulationSetSelection(GroupingPartitionKey("WS", "NA", "11.0"), 1001)
+        ],
+    )
+    kwargs.update(overrides)
+    return manager.submit(**kwargs)
+
+
+def _rows_by_set(result):
+    return {
+        row["simulationSetId"]: row
+        for row in result.request_body["settings"]["regionPerilSimulationSet"]
+    }
+
+
+def test_simulation_periods_selection_overrides_pet_and_set_periods():
+    """Write the caller's simulationPeriods on PLT and converted-ELT rows alike."""
+    manager, client, _ = make_manager(*mixed_fixtures(), post=True)
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    ws_key = GroupingPartitionKey("WS", "NA", "11.0")
+    plt_key = next(p.key for p in inspection.partitions if p.key != ws_key)
+
+    result = _mixed_submit(manager, inspection, simulation_periods_selections=[
+        SimulationPeriodsSelection(ws_key, 50000),
+        SimulationPeriodsSelection(plt_key, 25000),
+    ])
+
+    rows = _rows_by_set(result)
+    assert rows[1001]["simulationPeriods"] == 50000
+    assert rows[50]["simulationPeriods"] == 25000
+    assert client.calls[-1]["json"] == result.request_body
+
+
+def test_partition_without_simulation_periods_selection_keeps_its_periods():
+    """Fall back to the PET's periods and the set's defaultPeriods."""
+    manager, _, _ = make_manager(*mixed_fixtures(), post=True)
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    result = _mixed_submit(manager, inspection, simulation_periods_selections=[
+        SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 50000),
+    ])
+
+    rows = _rows_by_set(result)
+    assert rows[1001]["simulationPeriods"] == 50000
+    assert rows[50]["simulationPeriods"] == 100000
+
+
+@pytest.mark.parametrize(
+    ("selections", "code"),
+    [
+        (
+            [SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 50000)] * 2,
+            "simulation_periods_selection_duplicate",
+        ),
+        (
+            [SimulationPeriodsSelection(GroupingPartitionKey("EQ", "NA", "17.0"), 50000)],
+            "simulation_periods_selection_unknown_partition",
+        ),
+    ],
+)
+def test_invalid_simulation_periods_selection_blocks_post(selections, code):
+    """Return structured problems for duplicate and unknown-partition selections."""
+    manager, client, _ = make_manager(*mixed_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        _mixed_submit(manager, inspection, simulation_periods_selections=selections)
+
+    assert code in {problem.code for problem in raised.value.problems}
+    assert client.calls == []
+
+
+def test_simulation_periods_selection_on_an_elt_group_is_structured():
+    """Reject a simulationPeriods override when the group is not simulated to PLT."""
+    manager, client, _ = make_manager(*pure_elt_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint=inspection.fingerprint,
+            simulation_periods_selections=[
+                SimulationPeriodsSelection(inspection.partitions[0].key, 50000)
+            ],
+        )
+
+    assert "simulation_periods_selection_not_required" in {
+        problem.code for problem in raised.value.problems
+    }
+    assert client.calls == []
+
+
+def test_non_positive_simulation_periods_is_direct_validation_error():
+    """Reject simulation_periods <= 0 before any Platform read."""
+    manager, client, _ = make_manager(*mixed_fixtures())
+
+    with pytest.raises(IRPValidationError):
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint="v5:unused",
+            simulation_periods_selections=[
+                SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 0)
+            ],
+        )
+
     assert client.calls == []
 
 

@@ -53,6 +53,11 @@ class GroupingProblemCode(str, Enum):
     SIMULATION_SET_SELECTION_UNKNOWN_PARTITION = "simulation_set_selection_unknown_partition"
     SIMULATION_SET_SELECTION_NOT_REQUIRED = "simulation_set_selection_not_required"
     SIMULATION_SET_SELECTION_NOT_OFFERED = "simulation_set_selection_not_offered"
+    SIMULATION_PERIODS_SELECTION_DUPLICATE = "simulation_periods_selection_duplicate"
+    SIMULATION_PERIODS_SELECTION_UNKNOWN_PARTITION = (
+        "simulation_periods_selection_unknown_partition"
+    )
+    SIMULATION_PERIODS_SELECTION_NOT_REQUIRED = "simulation_periods_selection_not_required"
     PET_ID_MISSING = "pet_id_missing"
     PET_PERIODS_MISSING = "pet_periods_missing"
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
@@ -254,6 +259,19 @@ class SimulationSetSelection:
 
 
 @dataclass(frozen=True)
+class SimulationPeriodsSelection:
+    """Caller-selected ``simulationPeriods`` for one partition of a PLT group.
+
+    Without a selection the request row keeps the member PET's period count
+    (PLT partition) or the chosen simulation set's ``defaultPeriods`` (ELT
+    partition converted to PLT).
+    """
+
+    partition: GroupingPartitionKey
+    simulation_periods: int
+
+
+@dataclass(frozen=True)
 class GroupingSubmission:
     """Created grouping job ID and the exact submitted request body."""
 
@@ -391,6 +409,7 @@ class GroupingManager:
         event_rate_selections: Sequence[EventRateSelection],
         expected_inspection_fingerprint: str,
         simulation_set_selections: Sequence[SimulationSetSelection] = (),
+        simulation_periods_selections: Sequence[SimulationPeriodsSelection] = (),
     ) -> GroupingSubmission:
         """Reinspect, validate explicit choices, and create a grouping job.
 
@@ -401,6 +420,9 @@ class GroupingManager:
             expected_inspection_fingerprint: Fingerprint returned by the caller's inspection
             simulation_set_selections: One offered simulation set for each ELT
                 partition converted to PLT
+            simulation_periods_selections: At most one ``simulationPeriods`` value
+                per partition of a PLT group; a partition without one keeps the
+                PET's period count or the chosen set's ``defaultPeriods``
 
         Returns:
             Created grouping job ID and exact submitted request body
@@ -417,6 +439,9 @@ class GroupingManager:
         )
         simulation_selections = self._validate_simulation_set_selection_arguments(
             simulation_set_selections
+        )
+        periods_selections = self._validate_simulation_periods_selection_arguments(
+            simulation_periods_selections
         )
         if not _text(expected_inspection_fingerprint):
             raise IRPValidationError("expected_inspection_fingerprint must be a non-empty string")
@@ -437,8 +462,12 @@ class GroupingManager:
         selected_simulation_sets = self._resolve_simulation_set_selections(
             inspection, simulation_selections
         )
+        selected_simulation_periods = self._resolve_simulation_periods_selections(
+            inspection, periods_selections
+        )
         request_body = self._build_request(
-            inspection, settings, selected_schemes, selected_simulation_sets
+            inspection, settings, selected_schemes, selected_simulation_sets,
+            selected_simulation_periods,
         )
         try:
             response = self.client.request("POST", CREATE_ANALYSIS_GROUP, json=request_body)
@@ -565,6 +594,33 @@ class GroupingManager:
             if not _positive_int(selection.simulation_set_id):
                 raise IRPValidationError(
                     "selection.simulation_set_id must be a positive integer"
+                )
+        return normalized
+
+    @staticmethod
+    def _validate_simulation_periods_selection_arguments(
+        selections: Sequence[SimulationPeriodsSelection],
+    ) -> Tuple[SimulationPeriodsSelection, ...]:
+        if isinstance(selections, (str, bytes)) or not isinstance(selections, Sequence):
+            raise IRPValidationError("simulation_periods_selections must be a sequence")
+        normalized = tuple(selections)
+        for selection in normalized:
+            if not isinstance(selection, SimulationPeriodsSelection):
+                raise IRPValidationError(
+                    "simulation_periods_selections must contain "
+                    "SimulationPeriodsSelection values"
+                )
+            if not isinstance(selection.partition, GroupingPartitionKey):
+                raise IRPValidationError("selection.partition must be a GroupingPartitionKey")
+            if not all((
+                _text(selection.partition.peril_code),
+                _text(selection.partition.region_code),
+                _text(selection.partition.model_version),
+            )):
+                raise IRPValidationError("selection.partition fields must be non-empty strings")
+            if not _positive_int(selection.simulation_periods):
+                raise IRPValidationError(
+                    "selection.simulation_periods must be a positive integer"
                 )
         return normalized
 
@@ -1372,15 +1428,63 @@ class GroupingManager:
             for key, partition in required.items()
         }
 
+    def _resolve_simulation_periods_selections(
+        self,
+        inspection: GroupingInspection,
+        selections: Tuple[SimulationPeriodsSelection, ...],
+    ) -> Dict[GroupingPartitionKey, int]:
+        partitions = {partition.key: partition for partition in inspection.partitions}
+        supplied: Dict[GroupingPartitionKey, int] = {}
+        problems: List[GroupingProblem] = []
+        for selection in selections:
+            key = selection.partition
+            if key in supplied:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_PERIODS_SELECTION_DUPLICATE.value,
+                    message="A partition has more than one simulation-periods selection.",
+                    partition=key,
+                ))
+                continue
+            supplied[key] = selection.simulation_periods
+            partition = partitions.get(key)
+            if partition is None:
+                problems.append(GroupingProblem(
+                    code=(
+                        GroupingProblemCode
+                        .SIMULATION_PERIODS_SELECTION_UNKNOWN_PARTITION.value
+                    ),
+                    message=(
+                        "A simulation-periods selection names a partition not "
+                        "returned by inspection."
+                    ),
+                    partition=key,
+                ))
+                continue
+            if not inspection.simulate_to_plt:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.SIMULATION_PERIODS_SELECTION_NOT_REQUIRED.value,
+                    message=(
+                        "A simulation-periods selection was supplied for a group "
+                        "that is not simulated to PLT."
+                    ),
+                    analysis_ids=partition.analysis_ids,
+                    partition=key,
+                ))
+        if problems:
+            raise IRPGroupingValidationError(tuple(self._deduplicate_problems(problems)))
+        return supplied
+
     def _build_request(
         self,
         inspection: GroupingInspection,
         settings: GroupingSettings,
         selected_schemes: Dict[GroupingPartitionKey, int],
         selected_simulation_sets: Dict[GroupingPartitionKey, SimulationSetOption],
+        selected_simulation_periods: Dict[GroupingPartitionKey, int],
     ) -> Dict[str, Any]:
         region_peril = self._build_region_peril_simulation_set(
-            inspection, selected_schemes, selected_simulation_sets
+            inspection, selected_schemes, selected_simulation_sets,
+            selected_simulation_periods,
         )
         request_settings: Dict[str, Any] = {
             "analysisName": settings.analysis_name,
@@ -1415,6 +1519,7 @@ class GroupingManager:
         inspection: GroupingInspection,
         selected_schemes: Dict[GroupingPartitionKey, int],
         selected_simulation_sets: Dict[GroupingPartitionKey, SimulationSetOption],
+        selected_simulation_periods: Dict[GroupingPartitionKey, int],
     ) -> List[Dict[str, Any]]:
         conflicting = any(
             partition.event_rate_selection_required for partition in inspection.partitions
@@ -1450,7 +1555,9 @@ class GroupingManager:
                         "modelVersion": fact.model_version,
                         "perilCode": fact.peril_code,
                         "regionCode": fact.region_code,
-                        "simulationPeriods": fact.periods,
+                        "simulationPeriods": selected_simulation_periods.get(
+                            key, fact.periods
+                        ),
                         "simulationSetId": fact.pet_id,
                     }
                 else:
@@ -1460,7 +1567,9 @@ class GroupingManager:
                     if inspection.simulate_to_plt:
                         simulation_set = selected_simulation_sets[key]
                         simulation_set_id = simulation_set.simulation_set_id
-                        simulation_periods = simulation_set.simulation_periods
+                        simulation_periods = selected_simulation_periods.get(
+                            key, simulation_set.simulation_periods
+                        )
                     else:
                         simulation_set_id = 0
                         simulation_periods = 0
@@ -1495,6 +1604,7 @@ __all__ = [
     "GroupingSimulationMapping",
     "GroupingSubmission",
     "GroupingTreaty",
+    "SimulationPeriodsSelection",
     "SimulationSetOption",
     "SimulationSetSelection",
 ]

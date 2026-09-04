@@ -51,6 +51,7 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
   - [GroupingSimulationMapping](#class-groupingsimulationmapping)
   - [GroupingSubmission](#class-groupingsubmission)
   - [GroupingTreaty](#class-groupingtreaty)
+  - [SimulationPeriodsSelection](#class-simulationperiodsselection)
   - [SimulationSetOption](#class-simulationsetoption)
   - [SimulationSetSelection](#class-simulationsetselection)
 - [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
@@ -2374,7 +2375,8 @@ def submit(
     settings: irp_integration.grouping.GroupingSettings,
     event_rate_selections: Sequence[irp_integration.grouping.EventRateSelection],
     expected_inspection_fingerprint: str,
-    simulation_set_selections: Sequence[irp_integration.grouping.SimulationSetSelection] = ()
+    simulation_set_selections: Sequence[irp_integration.grouping.SimulationSetSelection] = (),
+    simulation_periods_selections: Sequence[irp_integration.grouping.SimulationPeriodsSelection] = ()
 ) -> irp_integration.grouping.GroupingSubmission
 ```
 
@@ -2387,6 +2389,9 @@ Reinspect, validate explicit choices, and create a grouping job.
  - **expected_inspection_fingerprint:**  Fingerprint returned by the caller's inspection
  - **simulation_set_selections:**  One offered simulation set for each ELT
    partition converted to PLT
+ - **simulation_periods_selections:**  At most one ``simulationPeriods`` value
+   per partition of a PLT group; a partition without one keeps the
+   PET's period count or the chosen set's ``defaultPeriods``
 
 **Returns:**
 > Created grouping job ID and exact submitted request body
@@ -2583,6 +2588,22 @@ def __init__(
     treaty_id: Optional[int],
     treaty_number: str,
     terms: Dict[str, Any]
+)
+```
+
+### `class SimulationPeriodsSelection`
+
+Caller-selected ``simulationPeriods`` for one partition of a PLT group.
+
+Without a selection the request row keeps the member PET's period count (PLT partition) or the chosen simulation set's ``defaultPeriods`` (ELT partition converted to PLT).
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    partition: irp_integration.grouping.GroupingPartitionKey,
+    simulation_periods: int
 )
 ```
 
